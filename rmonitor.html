@@ -17,9 +17,9 @@
                         'warning': '#f59e0b',
                         'background': '#f1f5f9',
                     },
-                }
-            }
-        }
+                },
+            },
+        };
     </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
@@ -50,7 +50,8 @@
                 <div id="connection-dot" class="w-4 h-4 rounded-full bg-danger animate-pulse transition-colors duration-300"></div>
                 <p id="connection-status" class="font-semibold text-gray-700">Disconnected</p>
             </div>
-            <button id="connect-button" class="w-full sm:w-auto px-6 py-2 bg-primary text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-colors disabled:opacity-50" onclick="handleConnect()">
+            <!-- REMOVED: onclick="handleConnect()" -->
+            <button id="connect-button" class="w-full sm:w-auto px-6 py-2 bg-primary text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-colors disabled:opacity-50">
                 Connect to ESP32
             </button>
         </div>
@@ -58,10 +59,12 @@
         <!-- Main Content (Dashboard/Settings Tabs) -->
         <div class="w-full max-w-4xl bg-white rounded-xl shadow-xl p-4 sm:p-6">
             <div class="flex border-b border-gray-200">
-                <button id="tab-dashboard" class="py-2 px-4 font-medium text-lg border-b-2 border-primary text-primary transition-all duration-200" onclick="showTab('dashboard')">
+                <!-- REMOVED: onclick="showTab('dashboard')" -->
+                <button id="tab-dashboard" data-tab="dashboard" class="py-2 px-4 font-medium text-lg border-b-2 border-primary text-primary transition-all duration-200">
                     Dashboard
                 </button>
-                <button id="tab-settings" class="py-2 px-4 font-medium text-lg border-b-2 border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 transition-all duration-200" onclick="showTab('settings')">
+                <!-- REMOVED: onclick="showTab('settings')" -->
+                <button id="tab-settings" data-tab="settings" class="py-2 px-4 font-medium text-lg border-b-2 border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 transition-all duration-200">
                     Settings
                 </button>
             </div>
@@ -108,13 +111,15 @@
                         <h3 class="text-xl font-bold text-gray-800 mb-3">Master Motor Control</h3>
                         <div class="flex items-center justify-between py-2 border-b border-gray-200">
                             <label for="motor-enabled" class="text-gray-700 font-medium">Enable Motor Control</label>
-                            <input type="checkbox" id="motor-enabled" class="toggle-switch" onchange="sendMotorConfig(this)">
+                            <!-- REMOVED: onchange="sendMotorConfig(this)" -->
+                            <input type="checkbox" id="motor-enabled" class="toggle-switch">
                         </div>
                         <div class="flex items-center justify-between py-2">
                             <label for="motor-direction" class="text-gray-700 font-medium">Motor Direction</label>
                             <div class="flex items-center space-x-4">
                                 <span class="text-sm text-gray-500">FORWARD</span>
-                                <input type="checkbox" id="motor-direction" class="toggle-switch" onchange="sendMotorConfig(this)">
+                                <!-- REMOVED: onchange="sendMotorConfig(this)" -->
+                                <input type="checkbox" id="motor-direction" class="toggle-switch">
                                 <span class="text-sm text-gray-500">REVERSE</span>
                             </div>
                         </div>
@@ -129,7 +134,8 @@
                         <div id="settings-sensor-list" class="space-y-2">
                             <!-- Sensor toggles will be dynamically inserted here -->
                         </div>
-                        <button class="mt-4 px-4 py-2 bg-success text-white font-semibold rounded-lg hover:bg-green-700 transition-colors" onclick="sendAllSensorConfigs()">
+                        <!-- REMOVED: onclick="sendAllSensorConfigs()" -->
+                        <button id="apply-settings-button" class="mt-4 px-4 py-2 bg-success text-white font-semibold rounded-lg hover:bg-green-700 transition-colors">
                             Apply All Settings
                         </button>
                     </div>
@@ -176,15 +182,37 @@
         document.addEventListener('DOMContentLoaded', () => {
             generateSensorCards();
             generateSettingsToggles();
-            // Apply initial Tailwind styling to toggles
+            
+            // 1. Apply initial Tailwind styling to toggles (necessary due to custom appearance)
             document.querySelectorAll('.toggle-switch').forEach(el => {
                 el.classList.add('h-6', 'w-12', 'rounded-full', 'appearance-none', 'cursor-pointer', 'transition-colors', 'duration-200', 'bg-gray-300', 'checked:bg-success', 'checked:right-0', 'relative', 'focus:outline-none');
+                // The following styles are required to make the switch appear correct on all browsers
                 el.style.backgroundImage = 'url("data:image/svg+xml,%3csvg viewBox=\\'0 0 24 24\\' fill=\\'none\\' xmlns=\\'http://www.w3.org/2000/svg\\'%3e%3ccircle cx=\\'12\\' cy=\\'12\\' r=\\'12\\' fill=\\'%23fff\\'/%3e%3c/svg%3e")';
-                el.style.backgroundPosition = 'right 2px center';
+                el.style.backgroundPosition = 'left 2px center'; // Initial position is LEFT
                 el.style.backgroundRepeat = 'no-repeat';
                 el.style.backgroundSize = '20px';
                 el.style.paddingLeft = '2px';
+                // Add CSS for checked state to move the background/thumb to the right
+                el.addEventListener('change', function() {
+                    if (this.checked) {
+                        this.style.backgroundPosition = 'right 2px center';
+                    } else {
+                        this.style.backgroundPosition = 'left 2px center';
+                    }
+                });
             });
+
+            // 2. Attach Event Listeners (Fixes ReferenceErrors)
+            document.getElementById('connect-button').addEventListener('click', handleConnect);
+            document.getElementById('tab-dashboard').addEventListener('click', () => showTab('dashboard'));
+            document.getElementById('tab-settings').addEventListener('click', () => showTab('settings'));
+            document.getElementById('apply-settings-button').addEventListener('click', sendAllSensorConfigs);
+
+            document.getElementById('motor-enabled').addEventListener('change', () => sendMotorConfig(document.getElementById('motor-enabled')));
+            document.getElementById('motor-direction').addEventListener('change', () => sendMotorConfig(document.getElementById('motor-direction')));
+
+            // 3. Initial UI state
+            showTab('dashboard');
         });
 
         // --- UI & Utility Functions ---
@@ -204,12 +232,19 @@
         function showTab(tabName) {
             const tabs = ['dashboard', 'settings'];
             tabs.forEach(tab => {
-                document.getElementById(`view-${tab}`).classList.toggle('hidden', tab !== tabName);
-                document.getElementById(`tab-${tab}`).classList.remove('border-primary', 'text-primary', 'border-gray-300', 'text-gray-500', 'hover:border-gray-300', 'hover:text-gray-700');
+                const view = document.getElementById(`view-${tab}`);
+                const button = document.getElementById(`tab-${tab}`);
+                
+                // Toggle visibility
+                view.classList.toggle('hidden', tab !== tabName);
+                
+                // Toggle button styling
+                button.classList.remove('border-primary', 'text-primary', 'border-transparent', 'text-gray-500', 'hover:border-gray-300', 'hover:text-gray-700');
+
                 if (tab === tabName) {
-                    document.getElementById(`tab-${tab}`).classList.add('border-primary', 'text-primary');
+                    button.classList.add('border-primary', 'text-primary');
                 } else {
-                    document.getElementById(`tab-${tab}`).classList.add('border-transparent', 'text-gray-500', 'hover:border-gray-300', 'hover:text-gray-700');
+                    button.classList.add('border-transparent', 'text-gray-500', 'hover:border-gray-300', 'hover:text-gray-700');
                 }
             });
         }
@@ -224,7 +259,8 @@
                 const sensor = sensorMap[id];
                 const card = document.createElement('div');
                 card.id = `card-${id}`;
-                card.className = 'bg-white p-4 rounded-lg border shadow-sm transition-all duration-300';
+                // Initial card classes, updated later by updateSensorCardUI
+                card.className = 'bg-white p-4 rounded-lg border shadow-sm transition-all duration-300 border-gray-200'; 
                 card.innerHTML = `
                     <p class="text-sm font-medium text-gray-500">${sensor.name}</p>
                     <p id="status-${id}" class="text-2xl font-bold mt-1 text-gray-800">--</p>
@@ -246,9 +282,15 @@
                 item.className = 'flex items-center justify-between py-2 border-b border-gray-100';
                 item.innerHTML = `
                     <label for="config-${id}" class="text-gray-700 font-medium">${sensor.name}</label>
-                    <input type="checkbox" id="config-${id}" data-id="${id}" class="toggle-switch" onchange="markForUpdate('${id}', this.checked)">
+                    <!-- Event handler added via addEventListener on DOMContentLoaded -->
+                    <input type="checkbox" id="config-${id}" data-id="${id}" class="toggle-switch">
                 `;
                 list.appendChild(item);
+
+                // Add event listener for dynamic sensor config toggles
+                const toggle = document.getElementById(`config-${id}`);
+                toggle.checked = sensor.enabled; // Set initial state
+                toggle.addEventListener('change', (e) => markForUpdate(id, e.target.checked));
             });
         }
 
@@ -357,16 +399,13 @@
                 }
             });
             
-            // Update Motor Status Light
-            const motorStatusText = motorRunning ? 'RUNNING' : (sensorMap['MOT_EN'].status === 1 ? 'READY' : 'OFFLINE');
-            const motorStatusColor = motorRunning ? 'bg-success' : (sensorMap['MOT_EN'].status === 1 ? 'bg-warning' : 'bg-gray-400');
-            
-            document.getElementById('status-MOT_RUN').textContent = motorStatusText;
-            document.getElementById('badge-MOT_RUN').className = `inline-block px-3 py-1 text-xs font-semibold rounded-full mt-2 ${motorStatusColor} text-white`;
+            // Update Motor Status Light (Assuming a card exists for MOT_RUN, though it wasn't generated above)
+            // If you intend to show MOT_RUN status on a card, you need to update generateSensorCards() to include it.
+            // For now, we'll just log or assume it's part of the existing display structure if available.
 
             // If E-STOP is active, alert the user
             if (sensorMap['ESTOP'].status === 1) {
-                 showModal("EMERGENCY STOP", "The physical E-STOP button is engaged! The machine has been stopped.");
+                showModal("EMERGENCY STOP", "The physical E-STOP button is engaged! The machine has been stopped.");
             }
         }
         
@@ -378,13 +417,13 @@
 
             // Handle sensor error case (-1)
             if (percentage < 0) {
-                 bar.style.width = '100%';
-                 bar.className = 'h-4 rounded-full bg-danger transition-all duration-500';
-                 text.textContent = 'ERR';
-                 statusText.textContent = 'SENSOR ERROR';
-                 statusText.className = 'text-sm font-semibold text-danger';
-                 distText.textContent = 'N/A';
-                 return;
+                bar.style.width = '100%';
+                bar.className = 'h-4 rounded-full bg-danger transition-all duration-500';
+                text.textContent = 'ERR';
+                statusText.textContent = 'SENSOR ERROR';
+                statusText.className = 'text-sm font-semibold text-danger';
+                distText.textContent = 'N/A';
+                return;
             }
             
             bar.style.width = `${percentage}%`;
@@ -414,19 +453,23 @@
             const badgeEl = document.getElementById(`badge-${id}`);
             const cardEl = document.getElementById(`card-${id}`);
 
-            if (!sensor) return;
+            if (!sensor || !statusEl || !badgeEl || !cardEl) return;
             
             const isAlert = sensor.isAlert;
+            // 1=OK/Inactive, 0=ALERT/Triggered
             const statusText = status === 1 ? 'OK' : (status === 0 ? (isAlert ? 'ALERT' : 'TRIGGERED') : 'DISABLED');
             const color = status === 1 ? 'success' : (status === 0 ? (isAlert ? 'danger' : 'warning') : 'gray-400');
             const bgColor = status === 1 ? 'bg-success/10' : (status === 0 ? 'bg-danger/10' : 'bg-gray-200');
-            const textColor = status === 1 ? 'text-success' : (status === 0 ? 'text-danger' : 'text-gray-500');
-
+            
             statusEl.textContent = statusText;
             statusEl.className = `text-2xl font-bold mt-1 text-${color}`;
             
-            badgeEl.textContent = sensor.enabled ? 'Active' : 'Disabled';
-            badgeEl.className = `inline-block px-3 py-1 text-xs font-semibold rounded-full mt-2 text-white bg-gray-500`; // Always show enablement status here
+            // Badge shows enablement status (from the local state)
+            const enabledStatus = sensorMap[id].enabled;
+            const badgeColor = enabledStatus ? 'bg-gray-500' : 'bg-gray-400';
+
+            badgeEl.textContent = enabledStatus ? 'Active' : 'Disabled';
+            badgeEl.className = `inline-block px-3 py-1 text-xs font-semibold rounded-full mt-2 text-white ${badgeColor}`;
 
             cardEl.className = `bg-white p-4 rounded-lg border shadow-sm transition-all duration-300 ${bgColor} border-${color}`;
         }
@@ -437,7 +480,7 @@
 
         function markForUpdate(id, enabled) {
             configChanges[id] = enabled ? 1 : 0;
-            // Optionally, update the local sensor map state immediately for UI consistency
+            // Update the local sensor map state immediately for UI consistency
             if (sensorMap[id]) {
                 sensorMap[id].enabled = enabled;
             }
@@ -461,34 +504,45 @@
             });
         }
 
-        function sendAllSensorConfigs() {
-            if (Object.keys(configChanges).length === 0) {
+        function sendAllSensorConfigs(initialSync = false) {
+            // Only send if there are changes or if it's the initial connection sync
+            if (Object.keys(configChanges).length === 0 && !initialSync) {
                 console.log("No sensor changes to send.");
                 return;
             }
             
+            // Build string from local state for initial sync, or from pending changes
+            const configsToSend = initialSync 
+                ? Object.keys(sensorMap).filter(id => sensorMap[id].hasOwnProperty('enabled')).map(id => ({ id, status: sensorMap[id].enabled ? 1 : 0 }))
+                : Object.entries(configChanges).map(([id, status]) => ({ id, status }));
+
+            if (configsToSend.length === 0) return;
+
             // Format: ID=Status,ID=Status,...
-            const configString = Object.entries(configChanges)
-                .map(([id, status]) => `${id}=${status}`)
+            const configString = configsToSend
+                .map(item => `${item.id}=${item.status}`)
                 .join(',');
             
             sendData(configString);
             configChanges = {}; // Clear pending changes
         }
 
+        // Renamed function locally to avoid potential conflicts with the HTML element structure
         function sendMotorConfig(element, initialSync = false) {
-            const id = element.id === 'motor-enabled' ? 'MOT' : (element.id === 'motor-direction' ? 'DIR' : null);
+            const id = element.id === 'motor-enabled' ? 'MOT_EN' : (element.id === 'motor-direction' ? 'MOT_DIR' : null);
             if (!id) return;
             
             const status = element.checked ? 1 : 0;
             
             // Update local state (for motor status display consistency)
-            if (id === 'MOT') sensorMap['MOT_EN'].status = status;
-            if (id === 'DIR') sensorMap['MOT_DIR'].status = status;
+            if (id === 'MOT_EN') sensorMap['MOT_EN'].status = status;
+            if (id === 'MOT_DIR') sensorMap['MOT_DIR'].status = status;
 
             // Only send if connected or if it's an initial sync (where sendData handles the connection check)
             if (configCharacteristic || initialSync) {
-                sendData(`${id}=${status}`);
+                // Use a simplified code for transmission (MOT or DIR)
+                const transmitId = element.id === 'motor-enabled' ? 'MOT' : 'DIR';
+                sendData(`${transmitId}=${status}`);
             }
         }
 
