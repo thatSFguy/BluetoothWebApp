@@ -1,1 +1,544 @@
-<!doctype html> <html lang="en"> <head> <meta charset="utf-8" /> <meta name="viewport" content="width=device-width,initial-scale=1" /> <title>ESP32 Reloading Monitor</title> <script src="https://cdn.tailwindcss.com"></script> <script> tailwind.config = { theme: { extend: { colors: { 'primary': '#1d4ed8', 'secondary': '#f97316', 'success': '#10b981', 'danger': '#ef4444', 'warning': '#f59e0b', 'background': '#f1f5f9', }, }, }, }; </script> <style> @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap'); body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; } ::-webkit-scrollbar{ width:8px } ::-webkit-scrollbar-thumb{ background:#94a3b8;border-radius:4px } .dot { width:16px;height:16px;border-radius:9999px;display:inline-block } </style> </head> <body class="min-h-screen flex flex-col"> <div id="app" class="flex-grow flex flex-col items-center p-4 sm:p-6"> <header class="w-full max-w-4xl text-center py-4 bg-white rounded-xl shadow-lg mb-6"> <h1 class="text-2xl sm:text-3xl font-bold text-gray-800">Reloading Press Monitor</h1> <p class="text-sm text-gray-500">Real-time status via Bluetooth Low Energy (BLE)</p> </header> <!-- Connection --> <div class="w-full max-w-4xl bg-white p-4 rounded-xl shadow-md mb-6 flex flex-col sm:flex-row items-center justify-between" id="connection-panel"> <div class="flex items-center space-x-3 mb-4 sm:mb-0"> <div id="connection-dot" class="dot" style="background:#ef4444"></div> <p id="connection-status" class="font-semibold text-gray-700">Disconnected</p> </div> <div class="flex items-center gap-3"> <div class="text-sm text-gray-500 mr-2 hidden sm:block">Device:</div> <div id="deviceName" class="pill inline-block px-3 py-1 rounded-full bg-gray-100 text-gray-700">No device</div> <button id="connect-button" class="px-6 py-2 bg-primary text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-colors">Connect to ESP32</button> <button id="disconnect-button" class="px-4 py-2 bg-white text-gray-700 border rounded-lg hidden">Disconnect</button> </div> </div> <!-- Content --> <div class="w-full max-w-4xl bg-white rounded-xl shadow-xl p-4 sm:p-6"> <div class="flex border-b border-gray-200"> <button id="tab-dashboard" data-tab="dashboard" class="py-2 px-4 font-medium text-lg border-b-2 border-primary text-primary">Dashboard</button> <button id="tab-settings" data-tab="settings" class="py-2 px-4 font-medium text-lg border-b-2 border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700">Settings</button> </div> <!-- DASHBOARD --> <div id="view-dashboard" class="pt-6 grid grid-cols-1 lg:grid-cols-3 gap-6"> <div class="lg:col-span-1 bg-gray-50 p-5 rounded-lg border border-gray-200 shadow-inner"> <h2 class="text-xl font-bold text-gray-800 mb-2">Completed Rounds</h2> <p id="round-count" class="text-5xl font-extrabold text-primary">0</p> <p class="text-sm text-gray-500 mt-1">Total count since last reset.</p> </div> <div class="lg:col-span-2 bg-white p-5 rounded-lg border border-gray-200 shadow-md"> <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center justify-between"> <span>Powder Level</span> <span id="powder-status-text" class="text-sm font-semibold text-success">OK</span> </h2> <div class="w-full bg-gray-200 rounded-full h-4 relative"> <div id="powder-bar" class="h-4 rounded-full bg-success transition-all duration-500" style="width: 100%;"></div> <div class="absolute inset-0 flex items-center justify-center text-xs font-bold text-white" id="powder-percentage">100%</div> </div> <p class="text-sm text-gray-500 mt-2">Current powder distance: <span id="powder-dist" class="font-mono">-- mm</span></p> </div> <div class="lg:col-span-3"> <h2 class="text-xl font-bold text-gray-800 mb-4">Sensor Status</h2> <div id="sensor-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div> </div> </div> <!-- SETTINGS --> <div id="view-settings" class="pt-6 hidden"> <h2 class="text-2xl font-bold text-gray-800 mb-4">Motor & Sensor Configuration</h2> <div class="space-y-6"> <div class="bg-gray-50 p-5 rounded-lg border border-gray-200 shadow-inner"> <h3 class="text-xl font-bold text-gray-800 mb-3">Master Motor Control</h3> <div class="flex items-center justify-between py-2 border-b border-gray-200"> <label for="motor-enabled" class="text-gray-700 font-medium">Enable Motor Control</label> <input type="checkbox" id="motor-enabled" class="toggle-switch"> </div> <div class="flex items-center justify-between py-2"> <label for="motor-direction" class="text-gray-700 font-medium">Motor Direction</label> <div class="flex items-center space-x-4"> <span class="text-sm text-gray-500">FORWARD</span> <input type="checkbox" id="motor-direction" class="toggle-switch"> <span class="text-sm text-gray-500">REVERSE</span> </div> </div> <p class="text-xs text-warning mt-4">Note: Motor safety interlocks (E-STOP, Sensor Alerts) on the device will override this setting.</p> </div> <div class="bg-white p-5 rounded-lg border border-gray-200 shadow-md"> <h3 class="text-xl font-bold text-gray-800 mb-3">Enable/Disable Sensors</h3> <div id="settings-sensor-list" class="space-y-2"></div> <button id="apply-settings-button" class="mt-4 px-4 py-2 bg-success text-white font-semibold rounded-lg hover:bg-green-700 transition-colors">Apply All Settings</button> </div> </div> </div> </div> <!-- Modal --> <div id="message-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50"> <div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-sm"> <h3 id="modal-title" class="text-lg font-bold text-gray-800 mb-2">Error</h3> <p id="modal-content" class="text-gray-600 mb-4">Something went wrong.</p> <button id="modal-close" class="w-full px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-blue-700">Close</button> </div> </div> </div> <script> /* ========== UUIDs (from your firmware) ========== */ const SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"; const STATUS_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // notify const CONFIG_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // write /* ========== State & Maps ========== */ let bleDevice = null; let gattServer = null; let statusChar = null; // notify characteristic let configCharacteristic = null; // write characteristic const sensorMap = { 'PDR': { name: 'Powder Level', status: 1, enabled: true, isAlert: true }, 'PMR': { name: 'Primers Low', status: 1, enabled: true, isAlert: true }, 'CAS': { name: 'Cases Low', status: 1, enabled: true, isAlert: true }, 'BLT': { name: 'Bullets Low', status: 1, enabled: true, isAlert: true }, 'SWG': { name: 'Swage Complete', status: 1, enabled: false, isAlert: false }, 'SPT': { name: 'Spent Primer Check', status: 1, enabled: false, isAlert: true }, 'CNT': { name: 'Rounds Counter', status: 0, enabled: true, isAlert: false }, 'MOT_EN': { name: 'Motor Control Enabled', status: 0, type: 'motor' }, 'MOT_RUN': { name: 'Motor Running', status: 0, type: 'motor' }, 'MOT_DIR': { name: 'Motor Direction (Reverse)', status: 0, type: 'motor' }, 'ESTOP': { name: 'Emergency Stop Engaged', status: 0, isAlert: true }, }; /* ========== GATT OPERATION QUEUE (SERIALIZES ALL WRITES/OPS) ========== */ let gattQueue = Promise.resolve(); function enqueueGattOperation(operation) { // operation is an async function returning a promise const result = gattQueue.then(() => operation()); // keep queue alive after errors gattQueue = result.catch(() => {}); return result; } function delay(ms) { return new Promise(res => setTimeout(res, ms)); } /* ========== Utilities & UI helpers ========== */ function L(s) { console.log(s); } function showModal(title, content) { document.getElementById('modal-title').textContent = title; document.getElementById('modal-content').textContent = content; document.getElementById('message-modal').classList.remove('hidden'); document.getElementById('message-modal').classList.add('flex'); } function closeModal() { document.getElementById('message-modal').classList.add('hidden'); document.getElementById('message-modal').classList.remove('flex'); } document.getElementById('modal-close').addEventListener('click', closeModal); /* ========== UI generation ========== */ function generateSensorCards() { const grid = document.getElementById('sensor-grid'); grid.innerHTML = ''; const keys = Object.keys(sensorMap).filter(id => !['PDR','MOT_EN','MOT_RUN','MOT_DIR','CNT'].includes(id)); keys.forEach(id => { const s = sensorMap[id]; const card = document.createElement('div'); card.id = card-${id}; card.className = 'bg-white p-4 rounded-lg border shadow-sm transition-all duration-300 border-gray-200'; card.innerHTML = <p class="text-sm font-medium text-gray-500">${s.name}</p> <p id="status-${id}" class="text-2xl font-bold mt-1 text-gray-800">--</p> <span id="badge-${id}" class="inline-block px-3 py-1 text-xs font-semibold rounded-full mt-2"></span> ; grid.appendChild(card); }); } function generateSettingsToggles() { const list = document.getElementById('settings-sensor-list'); list.innerHTML = ''; const keys = Object.keys(sensorMap).filter(id => sensorMap[id].hasOwnProperty('enabled') && id !== 'PDR'); keys.forEach(id => { const s = sensorMap[id]; const item = document.createElement('div'); item.className = 'flex items-center justify-between py-2 border-b border-gray-100'; item.innerHTML = <label for="config-${id}" class="text-gray-700 font-medium">${s.name}</label> <input type="checkbox" id="config-${id}" data-id="${id}" class="toggle-switch"> ; list.appendChild(item); const toggle = document.getElementById(config-${id}); toggle.checked = s.enabled; toggle.addEventListener('change', (e) => markForUpdate(id, e.target.checked)); }); } /* ========== Tab handling ========== */ function showTab(tabName) { ['dashboard','settings'].forEach(tab => { const view = document.getElementById(view-${tab}); const button = document.getElementById(tab-${tab}); if (tab === tabName) { view.classList.remove('hidden'); button.classList.add('border-primary','text-primary'); button.classList.remove('text-gray-500'); } else { view.classList.add('hidden'); button.classList.remove('border-primary','text-primary'); button.classList.add('text-gray-500'); } }); } /* ========== Connection helpers ========== */ function setConnectionVisuals(state) { const dot = document.getElementById('connection-dot'); const statusText = document.getElementById('connection-status'); const deviceName = document.getElementById('deviceName'); if (state === 'connected') { dot.style.background = '#10b981'; // green statusText.textContent = 'Connected'; } else if (state === 'connecting') { dot.style.background = '#f59e0b'; // yellow statusText.textContent = 'Connecting...'; } else { dot.style.background = '#ef4444'; // red statusText.textContent = 'Disconnected'; deviceName.textContent = 'No device'; } } /* ========== BLE logic ========== */ async function handleConnect() { try { if (!navigator.bluetooth) { showModal('Bluetooth Unavailable', 'Web Bluetooth API not supported in this browser. Use Chrome or Edge.'); return; } if (bleDevice && bleDevice.gatt && bleDevice.gatt.connected) { // disconnect bleDevice.gatt.disconnect(); return; } // UI feedback document.getElementById('connect-button').disabled = true; document.getElementById('connect-button').textContent = 'Connecting...'; setConnectionVisuals('connecting'); // Request device (ask for service so we can access it) const device = await navigator.bluetooth.requestDevice({ filters: [{ services: [SERVICE_UUID] }], optionalServices: [SERVICE_UUID] }); bleDevice = device; document.getElementById('deviceName').textContent = device.name || device.id; bleDevice.addEventListener('gattserverdisconnected', onDisconnected); // Connect and stabilize the BLE stack gattServer = await device.gatt.connect(); await delay(150); // Get service const service = await gattServer.getPrimaryService(SERVICE_UUID); await delay(50); // Discover characteristics (wrap in try/catch individually) try { configCharacteristic = await service.getCharacteristic(CONFIG_CHAR_UUID); } catch (e) { console.warn('Config char not found:', e); configCharacteristic = null; } try { statusChar = await service.getCharacteristic(STATUS_CHAR_UUID); } catch (e) { console.warn('Status char not found:', e); statusChar = null; } // Start notifications in the queue (notifications are a GATT operation) if (statusChar && statusChar.properties.notify) { await enqueueGattOperation(async () => { await statusChar.startNotifications(); statusChar.addEventListener('characteristicvaluechanged', handleStatusUpdate); await delay(20); }); } // Update UI setConnectionVisuals('connected'); document.getElementById('connect-button').textContent = 'Disconnect'; document.getElementById('connect-button').disabled = false; document.getElementById('disconnect-button').classList.remove('hidden'); // enable/disable UI bits if (configCharacteristic) { document.getElementById('apply-settings-button').disabled = false; } // initial sync — send via queue to avoid collisions await enqueueGattOperation(async () => { // small pause before initial sync await delay(80); sendAllSensorConfigs(true); sendMotorConfig(document.getElementById('motor-enabled'), true); sendMotorConfig(document.getElementById('motor-direction'), true); }); L('Connected to device: ' + (device.name || device.id)); } catch (err) { console.error('BLE Connection Error:', err); showModal('Connection Failed', Could not connect to device. ${err && err.message ? err.message : err}); setConnectionVisuals('disconnected'); document.getElementById('connect-button').textContent = 'Connect to ESP32'; document.getElementById('connect-button').disabled = false; } } function onDisconnected(event) { console.log('Device disconnected', event); setConnectionVisuals('disconnected'); document.getElementById('connect-button').textContent = 'Connect to ESP32'; document.getElementById('connect-button').disabled = false; configCharacteristic = null; statusChar = null; bleDevice = null; document.getElementById('round-count').textContent = '0'; } /* Parse incoming notification (DataView) */ function handleStatusUpdate(e) { try { const dv = e.target.value; const arr = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength); const msg = new TextDecoder().decode(arr); console.log('RX:', msg); const parts = msg.split(','); parts.forEach(p => { const [id, valRaw] = p.split('='); if (!id) return; const val = parseInt(valRaw); if (id === 'CNT') { document.getElementById('round-count').textContent = isNaN(val) ? '0' : val; } else if (id === 'PDR') { updatePowderUI(isNaN(val) ? -1 : val); } else if (sensorMap[id]) { sensorMap[id].status = val; updateSensorCardUI(id, val); } else if (id === 'MOT_RUN') { sensorMap['MOT_RUN'].status = val; } }); if (sensorMap['ESTOP'] && sensorMap['ESTOP'].status === 1) { showModal('EMERGENCY STOP', 'The physical E-STOP button is engaged! The machine has been stopped.'); } } catch (err) { console.error('Status parse error', err); } } /* Powder UI update */ function updatePowderUI(percentage) { const bar = document.getElementById('powder-bar'); const text = document.getElementById('powder-percentage'); const statusText = document.getElementById('powder-status-text'); const distText = document.getElementById('powder-dist'); if (percentage < 0) { bar.style.width = '100%'; bar.className = 'h-4 rounded-full bg-danger transition-all duration-500'; text.textContent = 'ERR'; statusText.textContent = 'SENSOR ERROR'; statusText.className = 'text-sm font-semibold text-danger'; distText.textContent = 'N/A'; return; } const pct = Math.max(0, Math.min(100, percentage)); bar.style.width = ${pct}%; text.textContent = ${pct}%; let color = 'success', status = 'OK'; if (pct < 20 && pct >= 5) { color = 'warning'; status = 'LOW'; } else if (pct < 5) { color = 'danger'; status = 'CRITICAL'; } bar.className = h-4 rounded-full bg-${color} transition-all duration-500; statusText.textContent = status; statusText.className = text-sm font-semibold text-${color}; distText.textContent = ${pct}% (Est.); } /* Sensor card update */ function updateSensorCardUI(id, status) { const sensor = sensorMap[id]; const statusEl = document.getElementById(status-${id}); const badgeEl = document.getElementById(badge-${id}); const cardEl = document.getElementById(card-${id}); if (!sensor || !statusEl || !badgeEl || !cardEl) return; const isAlert = sensor.isAlert; const statusText = status === 1 ? 'OK' : (status === 0 ? (isAlert ? 'ALERT' : 'TRIGGERED') : 'DISABLED'); const color = status === 1 ? 'success' : (status === 0 ? (isAlert ? 'danger' : 'warning') : 'gray-400'); const bgColor = status === 1 ? 'bg-success/10' : (status === 0 ? 'bg-danger/10' : 'bg-gray-200'); statusEl.textContent = statusText; statusEl.className = text-2xl font-bold mt-1 text-${color}; const enabledStatus = sensor.enabled; const badgeColor = enabledStatus ? 'bg-gray-500' : 'bg-gray-400'; badgeEl.textContent = enabledStatus ? 'Active' : 'Disabled'; badgeEl.className = inline-block px-3 py-1 text-xs font-semibold rounded-full mt-2 text-white ${badgeColor}; cardEl.className = bg-white p-4 rounded-lg border shadow-sm transition-all duration-300 ${bgColor} border-${color}; } /* ========== Configuration sending (ALL WRITES QUEUED) ========== */ let configChanges = {}; function markForUpdate(id, enabled) { configChanges[id] = enabled ? 1 : 0; if (sensorMap[id]) sensorMap[id].enabled = enabled; } function sendData(data) { if (!configCharacteristic) { showModal('Connection Required', 'Please connect to the ESP32 first to send configuration changes.'); return; } console.log('TX: ' + data); const encoder = new TextEncoder(); const value = encoder.encode(data); // queue the write enqueueGattOperation(async () => { try { await configCharacteristic.writeValue(value); // small delay to smooth rapid writes await delay(50); } catch (err) { console.error('BLE Write Error', err); showModal('Write Failed', Could not send configuration to device. Error: ${err.message || err}); } }); } function sendAllSensorConfigs(initialSync = false) { if (Object.keys(configChanges).length === 0 && !initialSync) { console.log('No sensor changes to send.'); return; } const configsToSend = initialSync ? Object.keys(sensorMap).filter(id => sensorMap[id].hasOwnProperty('enabled')).map(id => ({ id, status: sensorMap[id].enabled ? 1 : 0 })) : Object.entries(configChanges).map(([id, status]) => ({ id, status })); if (configsToSend.length === 0) return; const configString = configsToSend.map(item => ${item.id}=${item.status}).join(','); sendData(configString); configChanges = {}; } function sendMotorConfig(element, initialSync = false) { const id = element.id === 'motor-enabled' ? 'MOT_EN' : (element.id === 'motor-direction' ? 'MOT_DIR' : null); if (!id) return; const status = element.checked ? 1 : 0; if (id === 'MOT_EN') sensorMap['MOT_EN'].status = status; if (id === 'MOT_DIR') sensorMap['MOT_DIR'].status = status; if (configCharacteristic || initialSync) { const transmitId = element.id === 'motor-enabled' ? 'MOT' : 'DIR'; // queue this write as well enqueueGattOperation(async () => { try { const encoder = new TextEncoder(); await configCharacteristic.writeValue(encoder.encode(${transmitId}=${status})); await delay(50); } catch (err) { console.error('Motor config write error', err); showModal('Write Failed', Could not send motor config. Error: ${err.message || err}); } }); } } /* ========== Initialization ========== */ document.addEventListener('DOMContentLoaded', () => { generateSensorCards(); generateSettingsToggles(); // style and event-bind toggles document.querySelectorAll('.toggle-switch').forEach(el => { el.classList.add('h-6','w-12','rounded-full','appearance-none','cursor-pointer','transition-colors','duration-200','bg-gray-300'); el.style.paddingLeft = '2px'; el.addEventListener('change', function() { if (this.checked) this.style.backgroundPosition = 'right 2px center'; else this.style.backgroundPosition = 'left 2px center'; }); }); // event wiring document.getElementById('connect-button').addEventListener('click', handleConnect); document.getElementById('disconnect-button').addEventListener('click', () => { if (bleDevice && bleDevice.gatt.connected) bleDevice.gatt.disconnect(); }); document.getElementById('tab-dashboard').addEventListener('click', () => showTab('dashboard')); document.getElementById('tab-settings').addEventListener('click', () => showTab('settings')); document.getElementById('apply-settings-button').addEventListener('click', () => sendAllSensorConfigs(false)); document.getElementById('motor-enabled').addEventListener('change', () => sendMotorConfig(document.getElementById('motor-enabled'))); document.getElementById('motor-direction').addEventListener('change', () => sendMotorConfig(document.getElementById('motor-direction'))); showTab('dashboard'); setConnectionVisuals('disconnected'); }); </script> </body> </html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ESP32 Reloading Monitor</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          'primary': '#1d4ed8',
+          'secondary': '#f97316',
+          'success': '#10b981',
+          'danger': '#ef4444',
+          'warning': '#f59e0b',
+          'background': '#f1f5f9',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+  body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+  ::-webkit-scrollbar{ width:8px } ::-webkit-scrollbar-thumb{ background:#94a3b8;border-radius:4px }
+  .dot { width:16px;height:16px;border-radius:9999px;display:inline-block }
+</style>
+</head>
+<body class="min-h-screen flex flex-col">
+  <div id="app" class="flex-grow flex flex-col items-center p-4 sm:p-6">
+    <header class="w-full max-w-4xl text-center py-4 bg-white rounded-xl shadow-lg mb-6">
+      <h1 class="text-2xl sm:text-3xl font-bold text-gray-800">Reloading Press Monitor</h1>
+      <p class="text-sm text-gray-500">Real-time status via Bluetooth Low Energy (BLE)</p>
+    </header>
+
+    <!-- Connection -->
+    <div class="w-full max-w-4xl bg-white p-4 rounded-xl shadow-md mb-6 flex flex-col sm:flex-row items-center justify-between" id="connection-panel">
+      <div class="flex items-center space-x-3 mb-4 sm:mb-0">
+        <div id="connection-dot" class="dot" style="background:#ef4444"></div>
+        <p id="connection-status" class="font-semibold text-gray-700">Disconnected</p>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <div class="text-sm text-gray-500 mr-2 hidden sm:block">Device:</div>
+        <div id="deviceName" class="pill inline-block px-3 py-1 rounded-full bg-gray-100 text-gray-700">No device</div>
+        <button id="connect-button" class="px-6 py-2 bg-primary text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-colors">Connect to ESP32</button>
+        <button id="disconnect-button" class="px-4 py-2 bg-white text-gray-700 border rounded-lg hidden">Disconnect</button>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="w-full max-w-4xl bg-white rounded-xl shadow-xl p-4 sm:p-6">
+      <div class="flex border-b border-gray-200">
+        <button id="tab-dashboard" data-tab="dashboard" class="py-2 px-4 font-medium text-lg border-b-2 border-primary text-primary">Dashboard</button>
+        <button id="tab-settings" data-tab="settings" class="py-2 px-4 font-medium text-lg border-b-2 border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700">Settings</button>
+      </div>
+
+      <!-- DASHBOARD -->
+      <div id="view-dashboard" class="pt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="lg:col-span-1 bg-gray-50 p-5 rounded-lg border border-gray-200 shadow-inner">
+          <h2 class="text-xl font-bold text-gray-800 mb-2">Completed Rounds</h2>
+          <p id="round-count" class="text-5xl font-extrabold text-primary">0</p>
+          <p class="text-sm text-gray-500 mt-1">Total count since last reset.</p>
+        </div>
+
+        <div class="lg:col-span-2 bg-white p-5 rounded-lg border border-gray-200 shadow-md">
+          <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center justify-between">
+            <span>Powder Level</span>
+            <span id="powder-status-text" class="text-sm font-semibold text-success">OK</span>
+          </h2>
+          <div class="w-full bg-gray-200 rounded-full h-4 relative">
+            <div id="powder-bar" class="h-4 rounded-full bg-success transition-all duration-500" style="width: 100%;"></div>
+            <div class="absolute inset-0 flex items-center justify-center text-xs font-bold text-white" id="powder-percentage">100%</div>
+          </div>
+          <p class="text-sm text-gray-500 mt-2">Current powder distance: <span id="powder-dist" class="font-mono">-- mm</span></p>
+        </div>
+
+        <div class="lg:col-span-3">
+          <h2 class="text-xl font-bold text-gray-800 mb-4">Sensor Status</h2>
+          <div id="sensor-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
+        </div>
+      </div>
+
+      <!-- SETTINGS -->
+      <div id="view-settings" class="pt-6 hidden">
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">Motor & Sensor Configuration</h2>
+        <div class="space-y-6">
+          <div class="bg-gray-50 p-5 rounded-lg border border-gray-200 shadow-inner">
+            <h3 class="text-xl font-bold text-gray-800 mb-3">Master Motor Control</h3>
+
+            <div class="flex items-center justify-between py-2 border-b border-gray-200">
+              <label for="motor-enabled" class="text-gray-700 font-medium">Enable Motor Control</label>
+              <input type="checkbox" id="motor-enabled" class="toggle-switch">
+            </div>
+
+            <div class="flex items-center justify-between py-2">
+              <label for="motor-direction" class="text-gray-700 font-medium">Motor Direction</label>
+              <div class="flex items-center space-x-4">
+                <span class="text-sm text-gray-500">FORWARD</span>
+                <input type="checkbox" id="motor-direction" class="toggle-switch">
+                <span class="text-sm text-gray-500">REVERSE</span>
+              </div>
+            </div>
+
+            <p class="text-xs text-warning mt-4">Note: Motor safety interlocks (E-STOP, Sensor Alerts) on the device will override this setting.</p>
+          </div>
+
+          <div class="bg-white p-5 rounded-lg border border-gray-200 shadow-md">
+            <h3 class="text-xl font-bold text-gray-800 mb-3">Enable/Disable Sensors</h3>
+            <div id="settings-sensor-list" class="space-y-2"></div>
+            <button id="apply-settings-button" class="mt-4 px-4 py-2 bg-success text-white font-semibold rounded-lg hover:bg-green-700 transition-colors">Apply All Settings</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="message-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50">
+      <div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-sm">
+        <h3 id="modal-title" class="text-lg font-bold text-gray-800 mb-2">Error</h3>
+        <p id="modal-content" class="text-gray-600 mb-4">Something went wrong.</p>
+        <button id="modal-close" class="w-full px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-blue-700">Close</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ========== UUIDs (from your firmware) ========== */
+const SERVICE_UUID     = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const STATUS_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // notify
+const CONFIG_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // write
+
+/* ========== State & Maps ========== */
+let bleDevice = null;
+let gattServer = null;
+let statusChar = null;    // notify characteristic
+let configCharacteristic = null; // write characteristic
+
+const sensorMap = {
+  'PDR': { name: 'Powder Level', status: 1, enabled: true, isAlert: true },
+  'PMR': { name: 'Primers Low', status: 1, enabled: true, isAlert: true },
+  'CAS': { name: 'Cases Low', status: 1, enabled: true, isAlert: true },
+  'BLT': { name: 'Bullets Low', status: 1, enabled: true, isAlert: true },
+  'SWG': { name: 'Swage Complete', status: 1, enabled: false, isAlert: false },
+  'SPT': { name: 'Spent Primer Check', status: 1, enabled: false, isAlert: true },
+  'CNT': { name: 'Rounds Counter', status: 0, enabled: true, isAlert: false },
+  'MOT_EN': { name: 'Motor Control Enabled', status: 0, type: 'motor' },
+  'MOT_RUN': { name: 'Motor Running', status: 0, type: 'motor' },
+  'MOT_DIR': { name: 'Motor Direction (Reverse)', status: 0, type: 'motor' },
+  'ESTOP': { name: 'Emergency Stop Engaged', status: 0, isAlert: true },
+};
+
+/* ========== GATT OPERATION QUEUE (SERIALIZES ALL WRITES/OPS) ========== */
+let gattQueue = Promise.resolve();
+function enqueueGattOperation(operation) {
+  // operation is an async function returning a promise
+  const result = gattQueue.then(() => operation());
+  // keep queue alive after errors
+  gattQueue = result.catch(() => {});
+  return result;
+}
+function delay(ms) { return new Promise(res => setTimeout(res, ms)); }
+
+/* ========== Utilities & UI helpers ========== */
+function L(s) {
+  console.log(s);
+}
+function showModal(title, content) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-content').textContent = content;
+  document.getElementById('message-modal').classList.remove('hidden');
+  document.getElementById('message-modal').classList.add('flex');
+}
+function closeModal() {
+  document.getElementById('message-modal').classList.add('hidden');
+  document.getElementById('message-modal').classList.remove('flex');
+}
+document.getElementById('modal-close').addEventListener('click', closeModal);
+
+/* ========== UI generation ========== */
+function generateSensorCards() {
+  const grid = document.getElementById('sensor-grid');
+  grid.innerHTML = '';
+  const keys = Object.keys(sensorMap).filter(id => !['PDR','MOT_EN','MOT_RUN','MOT_DIR','CNT'].includes(id));
+  keys.forEach(id => {
+    const s = sensorMap[id];
+    const card = document.createElement('div');
+    card.id = `card-${id}`;
+    card.className = 'bg-white p-4 rounded-lg border shadow-sm transition-all duration-300 border-gray-200';
+    card.innerHTML = `
+      <p class="text-sm font-medium text-gray-500">${s.name}</p>
+      <p id="status-${id}" class="text-2xl font-bold mt-1 text-gray-800">--</p>
+      <span id="badge-${id}" class="inline-block px-3 py-1 text-xs font-semibold rounded-full mt-2"></span>
+    `;
+    grid.appendChild(card);
+  });
+}
+function generateSettingsToggles() {
+  const list = document.getElementById('settings-sensor-list');
+  list.innerHTML = '';
+  const keys = Object.keys(sensorMap).filter(id => sensorMap[id].hasOwnProperty('enabled') && id !== 'PDR');
+  keys.forEach(id => {
+    const s = sensorMap[id];
+    const item = document.createElement('div');
+    item.className = 'flex items-center justify-between py-2 border-b border-gray-100';
+    item.innerHTML = `
+      <label for="config-${id}" class="text-gray-700 font-medium">${s.name}</label>
+      <input type="checkbox" id="config-${id}" data-id="${id}" class="toggle-switch">
+    `;
+    list.appendChild(item);
+    const toggle = document.getElementById(`config-${id}`);
+    toggle.checked = s.enabled;
+    toggle.addEventListener('change', (e) => markForUpdate(id, e.target.checked));
+  });
+}
+
+/* ========== Tab handling ========== */
+function showTab(tabName) {
+  ['dashboard','settings'].forEach(tab => {
+    const view = document.getElementById(`view-${tab}`);
+    const button = document.getElementById(`tab-${tab}`);
+    if (tab === tabName) {
+      view.classList.remove('hidden');
+      button.classList.add('border-primary','text-primary');
+      button.classList.remove('text-gray-500');
+    } else {
+      view.classList.add('hidden');
+      button.classList.remove('border-primary','text-primary');
+      button.classList.add('text-gray-500');
+    }
+  });
+}
+
+/* ========== Connection helpers ========== */
+function setConnectionVisuals(state) {
+  const dot = document.getElementById('connection-dot');
+  const statusText = document.getElementById('connection-status');
+  const deviceName = document.getElementById('deviceName');
+  if (state === 'connected') {
+    dot.style.background = '#10b981'; // green
+    statusText.textContent = 'Connected';
+  } else if (state === 'connecting') {
+    dot.style.background = '#f59e0b'; // yellow
+    statusText.textContent = 'Connecting...';
+  } else {
+    dot.style.background = '#ef4444'; // red
+    statusText.textContent = 'Disconnected';
+    deviceName.textContent = 'No device';
+  }
+}
+
+/* ========== BLE logic ========== */
+
+async function handleConnect() {
+  try {
+    if (!navigator.bluetooth) {
+      showModal('Bluetooth Unavailable', 'Web Bluetooth API not supported in this browser. Use Chrome or Edge.');
+      return;
+    }
+
+    if (bleDevice && bleDevice.gatt && bleDevice.gatt.connected) {
+      // disconnect
+      bleDevice.gatt.disconnect();
+      return;
+    }
+
+    // UI feedback
+    document.getElementById('connect-button').disabled = true;
+    document.getElementById('connect-button').textContent = 'Connecting...';
+    setConnectionVisuals('connecting');
+
+    // Request device (ask for service so we can access it)
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [SERVICE_UUID] }],
+      optionalServices: [SERVICE_UUID]
+    });
+
+    bleDevice = device;
+    document.getElementById('deviceName').textContent = device.name || device.id;
+    bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+    // Connect and stabilize the BLE stack
+    gattServer = await device.gatt.connect();
+    await delay(150);
+
+    // Get service
+    const service = await gattServer.getPrimaryService(SERVICE_UUID);
+    await delay(50);
+
+    // Discover characteristics (wrap in try/catch individually)
+    try {
+      configCharacteristic = await service.getCharacteristic(CONFIG_CHAR_UUID);
+    } catch (e) {
+      console.warn('Config char not found:', e);
+      configCharacteristic = null;
+    }
+    try {
+      statusChar = await service.getCharacteristic(STATUS_CHAR_UUID);
+    } catch (e) {
+      console.warn('Status char not found:', e);
+      statusChar = null;
+    }
+
+    // Start notifications in the queue (notifications are a GATT operation)
+    if (statusChar && statusChar.properties.notify) {
+      await enqueueGattOperation(async () => {
+        await statusChar.startNotifications();
+        statusChar.addEventListener('characteristicvaluechanged', handleStatusUpdate);
+        await delay(20);
+      });
+    }
+
+    // Update UI
+    setConnectionVisuals('connected');
+    document.getElementById('connect-button').textContent = 'Disconnect';
+    document.getElementById('connect-button').disabled = false;
+    document.getElementById('disconnect-button').classList.remove('hidden');
+
+    // enable/disable UI bits
+    if (configCharacteristic) {
+      document.getElementById('apply-settings-button').disabled = false;
+    }
+
+    // initial sync — send via queue to avoid collisions
+    await enqueueGattOperation(async () => {
+      // small pause before initial sync
+      await delay(80);
+      sendAllSensorConfigs(true);
+      sendMotorConfig(document.getElementById('motor-enabled'), true);
+      sendMotorConfig(document.getElementById('motor-direction'), true);
+    });
+
+    L('Connected to device: ' + (device.name || device.id));
+  } catch (err) {
+    console.error('BLE Connection Error:', err);
+    showModal('Connection Failed', `Could not connect to device. ${err && err.message ? err.message : err}`);
+    setConnectionVisuals('disconnected');
+    document.getElementById('connect-button').textContent = 'Connect to ESP32';
+    document.getElementById('connect-button').disabled = false;
+  }
+}
+
+function onDisconnected(event) {
+  console.log('Device disconnected', event);
+  setConnectionVisuals('disconnected');
+  document.getElementById('connect-button').textContent = 'Connect to ESP32';
+  document.getElementById('connect-button').disabled = false;
+  configCharacteristic = null;
+  statusChar = null;
+  bleDevice = null;
+  document.getElementById('round-count').textContent = '0';
+}
+
+/* Parse incoming notification (DataView) */
+function handleStatusUpdate(e) {
+  try {
+    const dv = e.target.value;
+    const arr = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
+    const msg = new TextDecoder().decode(arr);
+    console.log('RX:', msg);
+
+    const parts = msg.split(',');
+    parts.forEach(p => {
+      const [id, valRaw] = p.split('=');
+      if (!id) return;
+      const val = parseInt(valRaw);
+      if (id === 'CNT') {
+        document.getElementById('round-count').textContent = isNaN(val) ? '0' : val;
+      } else if (id === 'PDR') {
+        updatePowderUI(isNaN(val) ? -1 : val);
+      } else if (sensorMap[id]) {
+        sensorMap[id].status = val;
+        updateSensorCardUI(id, val);
+      } else if (id === 'MOT_RUN') {
+        sensorMap['MOT_RUN'].status = val;
+      }
+    });
+
+    if (sensorMap['ESTOP'] && sensorMap['ESTOP'].status === 1) {
+      showModal('EMERGENCY STOP', 'The physical E-STOP button is engaged! The machine has been stopped.');
+    }
+  } catch (err) {
+    console.error('Status parse error', err);
+  }
+}
+
+/* Powder UI update */
+function updatePowderUI(percentage) {
+  const bar = document.getElementById('powder-bar');
+  const text = document.getElementById('powder-percentage');
+  const statusText = document.getElementById('powder-status-text');
+  const distText = document.getElementById('powder-dist');
+
+  if (percentage < 0) {
+    bar.style.width = '100%';
+    bar.className = 'h-4 rounded-full bg-danger transition-all duration-500';
+    text.textContent = 'ERR';
+    statusText.textContent = 'SENSOR ERROR';
+    statusText.className = 'text-sm font-semibold text-danger';
+    distText.textContent = 'N/A';
+    return;
+  }
+
+  const pct = Math.max(0, Math.min(100, percentage));
+  bar.style.width = `${pct}%`;
+  text.textContent = `${pct}%`;
+  let color = 'success', status = 'OK';
+  if (pct < 20 && pct >= 5) { color = 'warning'; status = 'LOW'; }
+  else if (pct < 5) { color = 'danger'; status = 'CRITICAL'; }
+
+  bar.className = `h-4 rounded-full bg-${color} transition-all duration-500`;
+  statusText.textContent = status;
+  statusText.className = `text-sm font-semibold text-${color}`;
+  distText.textContent = `${pct}% (Est.)`;
+}
+
+/* Sensor card update */
+function updateSensorCardUI(id, status) {
+  const sensor = sensorMap[id];
+  const statusEl = document.getElementById(`status-${id}`);
+  const badgeEl = document.getElementById(`badge-${id}`);
+  const cardEl = document.getElementById(`card-${id}`);
+  if (!sensor || !statusEl || !badgeEl || !cardEl) return;
+
+  const isAlert = sensor.isAlert;
+  const statusText = status === 1 ? 'OK' : (status === 0 ? (isAlert ? 'ALERT' : 'TRIGGERED') : 'DISABLED');
+  const color = status === 1 ? 'success' : (status === 0 ? (isAlert ? 'danger' : 'warning') : 'gray-400');
+  const bgColor = status === 1 ? 'bg-success/10' : (status === 0 ? 'bg-danger/10' : 'bg-gray-200');
+
+  statusEl.textContent = statusText;
+  statusEl.className = `text-2xl font-bold mt-1 text-${color}`;
+
+  const enabledStatus = sensor.enabled;
+  const badgeColor = enabledStatus ? 'bg-gray-500' : 'bg-gray-400';
+
+  badgeEl.textContent = enabledStatus ? 'Active' : 'Disabled';
+  badgeEl.className = `inline-block px-3 py-1 text-xs font-semibold rounded-full mt-2 text-white ${badgeColor}`;
+
+  cardEl.className = `bg-white p-4 rounded-lg border shadow-sm transition-all duration-300 ${bgColor} border-${color}`;
+}
+
+/* ========== Configuration sending (ALL WRITES QUEUED) ========== */
+let configChanges = {};
+function markForUpdate(id, enabled) {
+  configChanges[id] = enabled ? 1 : 0;
+  if (sensorMap[id]) sensorMap[id].enabled = enabled;
+}
+
+function sendData(data) {
+  if (!configCharacteristic) {
+    showModal('Connection Required', 'Please connect to the ESP32 first to send configuration changes.');
+    return;
+  }
+  console.log('TX: ' + data);
+  const encoder = new TextEncoder();
+  const value = encoder.encode(data);
+
+  // queue the write
+  enqueueGattOperation(async () => {
+    try {
+      await configCharacteristic.writeValue(value);
+      // small delay to smooth rapid writes
+      await delay(50);
+    } catch (err) {
+      console.error('BLE Write Error', err);
+      showModal('Write Failed', `Could not send configuration to device. Error: ${err.message || err}`);
+    }
+  });
+}
+
+function sendAllSensorConfigs(initialSync = false) {
+  if (Object.keys(configChanges).length === 0 && !initialSync) {
+    console.log('No sensor changes to send.');
+    return;
+  }
+  const configsToSend = initialSync
+    ? Object.keys(sensorMap).filter(id => sensorMap[id].hasOwnProperty('enabled')).map(id => ({ id, status: sensorMap[id].enabled ? 1 : 0 }))
+    : Object.entries(configChanges).map(([id, status]) => ({ id, status }));
+
+  if (configsToSend.length === 0) return;
+
+  const configString = configsToSend.map(item => `${item.id}=${item.status}`).join(',');
+  sendData(configString);
+  configChanges = {};
+}
+
+function sendMotorConfig(element, initialSync = false) {
+  const id = element.id === 'motor-enabled' ? 'MOT_EN' : (element.id === 'motor-direction' ? 'MOT_DIR' : null);
+  if (!id) return;
+  const status = element.checked ? 1 : 0;
+  if (id === 'MOT_EN') sensorMap['MOT_EN'].status = status;
+  if (id === 'MOT_DIR') sensorMap['MOT_DIR'].status = status;
+
+  if (configCharacteristic || initialSync) {
+    const transmitId = element.id === 'motor-enabled' ? 'MOT' : 'DIR';
+    // queue this write as well
+    enqueueGattOperation(async () => {
+      try {
+        const encoder = new TextEncoder();
+        await configCharacteristic.writeValue(encoder.encode(`${transmitId}=${status}`));
+        await delay(50);
+      } catch (err) {
+        console.error('Motor config write error', err);
+        showModal('Write Failed', `Could not send motor config. Error: ${err.message || err}`);
+      }
+    });
+  }
+}
+
+/* ========== Initialization ========== */
+document.addEventListener('DOMContentLoaded', () => {
+  generateSensorCards();
+  generateSettingsToggles();
+
+  // style and event-bind toggles
+  document.querySelectorAll('.toggle-switch').forEach(el => {
+    el.classList.add('h-6','w-12','rounded-full','appearance-none','cursor-pointer','transition-colors','duration-200','bg-gray-300');
+    el.style.paddingLeft = '2px';
+    el.addEventListener('change', function() {
+      if (this.checked) this.style.backgroundPosition = 'right 2px center';
+      else this.style.backgroundPosition = 'left 2px center';
+    });
+  });
+
+  // event wiring
+  document.getElementById('connect-button').addEventListener('click', handleConnect);
+  document.getElementById('disconnect-button').addEventListener('click', () => {
+    if (bleDevice && bleDevice.gatt.connected) bleDevice.gatt.disconnect();
+  });
+  document.getElementById('tab-dashboard').addEventListener('click', () => showTab('dashboard'));
+  document.getElementById('tab-settings').addEventListener('click', () => showTab('settings'));
+
+  document.getElementById('apply-settings-button').addEventListener('click', () => sendAllSensorConfigs(false));
+  document.getElementById('motor-enabled').addEventListener('change', () => sendMotorConfig(document.getElementById('motor-enabled')));
+  document.getElementById('motor-direction').addEventListener('change', () => sendMotorConfig(document.getElementById('motor-direction')));
+
+  showTab('dashboard');
+  setConnectionVisuals('disconnected');
+});
+</script>
+</body>
+</html>
