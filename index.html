@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<body>
+<button id="connectBtn">Connect to ESP32</button>
+<pre id="log"></pre>
+
+<script>
+const log = msg => document.getElementById("log").textContent += msg + "\n";
+
+document.getElementById("connectBtn").onclick = async () => {
+    try {
+        log("Requesting BLE device...");
+        const device = await navigator.bluetooth.requestDevice({
+            filters: [{ namePrefix: "ESP32" }],
+            optionalServices: ["1234abcd-0000-1000-8000-00805f9b34fb"] // your service UUID
+        });
+
+        log("Connecting to GATT...");
+        const server = await device.gatt.connect();
+
+        log("Getting service...");
+        const service = await server.getPrimaryService("1234abcd-0000-1000-8000-00805f9b34fb");
+
+        log("Getting characteristic...");
+        const characteristic = await service.getCharacteristic("abcd1234-0000-1000-8000-00805f9b34fb");
+
+        log("Connected!");
+        
+        // OPTIONAL: subscribe for notifications
+        await characteristic.startNotifications();
+        characteristic.addEventListener("characteristicvaluechanged", e => {
+            const value = new TextDecoder().decode(e.target.value);
+            log("Notify: " + value);
+        });
+
+    } catch (err) {
+        log("Error: " + err);
+    }
+};
+</script>
+</body>
+</html>
