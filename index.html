@@ -1,42 +1,90 @@
 <!DOCTYPE html>
 <html>
+<head>
+<meta charset="utf-8" />
+<title>BLE Browser</title>
+<style>
+    body {
+        font-family: sans-serif;
+        margin: 2rem;
+    }
+    button {
+        padding: 0.6rem 1rem;
+        font-size: 1.1rem;
+    }
+    select {
+        padding: 0.4rem;
+        margin-left: 1rem;
+    }
+    .hidden { display: none; }
+</style>
+</head>
 <body>
-<button id="connectBtn">Connect to ESP32</button>
+
+<h2>BLE Device Scanner</h2>
+
+<button id="connectBtn">Connect to BLE Device</button>
+<select id="serviceSelect" class="hidden"></select>
+
 <pre id="log"></pre>
 
 <script>
-const log = msg => document.getElementById("log").textContent += msg + "\n";
+const log = msg => {
+    document.getElementById("log").textContent += msg + "\n";
+};
 
-document.getElementById("connectBtn").onclick = async () => {
+let bleDevice = null;
+let gattServer = null;
+
+document.getElementById("connectBtn").addEventListener("click", async () => {
     try {
         log("Requesting BLE device...");
-        const device = await navigator.bluetooth.requestDevice({
-            filters: [{ namePrefix: "ESP32" }],
-            optionalServices: ["1234abcd-0000-1000-8000-00805f9b34fb"] // your service UUID
+        bleDevice = await navigator.bluetooth.requestDevice({
+            acceptAllDevices: true,
+            optionalServices: []   // we will discover dynamically
         });
 
         log("Connecting to GATT...");
-        const server = await device.gatt.connect();
+        gattServer = await bleDevice.gatt.connect();
 
-        log("Getting service...");
-        const service = await server.getPrimaryService("1234abcd-0000-1000-8000-00805f9b34fb");
+        log("Connected. Discovering primary services...");
+        const services = await gattServer.getPrimaryServices();
 
-        log("Getting characteristic...");
-        const characteristic = await service.getCharacteristic("abcd1234-0000-1000-8000-00805f9b34fb");
+        const serviceSelect = document.getElementById("serviceSelect");
+        serviceSelect.innerHTML = "";  // clear
+        serviceSelect.classList.remove("hidden");
 
-        log("Connected!");
-        
-        // OPTIONAL: subscribe for notifications
-        await characteristic.startNotifications();
-        characteristic.addEventListener("characteristicvaluechanged", e => {
-            const value = new TextDecoder().decode(e.target.value);
-            log("Notify: " + value);
+        services.forEach(s => {
+            const opt = document.createElement("option");
+            opt.value = s.uuid;
+            opt.textContent = s.uuid;
+            serviceSelect.appendChild(opt);
         });
 
-    } catch (err) {
+        log("Select a service from the dropdown above.");
+    } 
+    catch (err) {
         log("Error: " + err);
     }
-};
+});
+
+
+document.getElementById("serviceSelect").addEventListener("change", async (e) => {
+    const uuid = e.target.value;
+    log("Getting service: " + uuid);
+
+    try {
+        const service = await gattServer.getPrimaryService(uuid);
+        const chars = await service.getCharacteristics();
+
+        log("\nCharacteristics of " + uuid + ":");
+        chars.forEach(c => log(" - " + c.uuid));
+    } 
+    catch (err) {
+        log("Error reading service: " + err);
+    }
+});
 </script>
+
 </body>
 </html>
