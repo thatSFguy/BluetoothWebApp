@@ -1,90 +1,418 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>BLE Browser</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ESP32 Web BLE — Meshtastic-like UI</title>
 <style>
-    body {
-        font-family: sans-serif;
-        margin: 2rem;
-    }
-    button {
-        padding: 0.6rem 1rem;
-        font-size: 1.1rem;
-    }
-    select {
-        padding: 0.4rem;
-        margin-left: 1rem;
-    }
-    .hidden { display: none; }
+  :root{
+    --bg:#0f1720; --card:#0b1220; --accent:#00c2a8; --muted:#94a3b8; --text:#e6eef6;
+  }
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;}
+  body{background:linear-gradient(180deg,#071025 0%, #071428 100%); color:var(--text); padding:28px;}
+  .app{max-width:980px;margin:0 auto;}
+  header{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+  h1{font-size:20px;margin:0}
+  .controls{display:flex;gap:8px;margin-bottom:12px;align-items:center}
+  button{background:var(--accent);border:0;padding:10px 14px;border-radius:10px;color:#042024;font-weight:600;cursor:pointer}
+  button.secondary{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--text);font-weight:500}
+  .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:14px;margin-bottom:14px;box-shadow:0 6px 18px rgba(0,0,0,0.45)}
+  .row{display:flex;gap:10px;align-items:center}
+  label{color:var(--muted);font-size:13px;margin-right:8px}
+  select,input[type=text]{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px;border-radius:8px;color:var(--text)}
+  pre#log{height:240px;overflow:auto;background:#04151a;border-radius:8px;padding:10px;color:#ccf4ea;margin:0;font-size:13px}
+  .status{font-size:13px;color:var(--muted)}
+  .chars{display:grid;grid-template-columns:1fr 240px;gap:12px}
+  .char{background:rgba(255,255,255,0.02);padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.03)}
+  .char h4{margin:0 0 6px 0;font-size:13px}
+  .small{font-size:12px;color:var(--muted)}
+  .led-controls{display:flex;gap:8px}
+  .pill{padding:6px 10px;border-radius:999px;background:rgba(255,255,255,0.03);font-weight:600}
+  .connected{color:#8ef0c9}
+  .disconnected{color:#ff9aa2}
+  .flex{display:flex;gap:10px;align-items:center}
+  @media (max-width:720px){ .chars{grid-template-columns:1fr} }
 </style>
 </head>
 <body>
+<div class="app">
+  <header>
+    <div>
+      <h1>ESP32 Web BLE — Meshtastic-style UI</h1>
+      <div class="status" id="connState">Disconnected</div>
+    </div>
+    <div style="margin-left:auto" class="flex">
+      <div class="pill" id="deviceName">No device</div>
+    </div>
+  </header>
 
-<h2>BLE Device Scanner</h2>
+  <div class="card">
+    <div class="controls">
+      <button id="connectBtn">Connect</button>
+      <button id="disconnectBtn" class="secondary" disabled>Disconnect</button>
+      <button id="reconnectBtn" class="secondary" disabled>Reconnect</button>
+      <div style="margin-left:auto" class="small">HTTPS required — open via <strong>https://</strong></div>
+    </div>
 
-<button id="connectBtn">Connect to BLE Device</button>
-<select id="serviceSelect" class="hidden"></select>
+    <div class="row" style="margin-top:8px;">
+      <label>Service</label>
+      <select id="serviceSelect" style="min-width:360px"></select>
+      <label style="margin-left:8px">Characteristic</label>
+      <select id="charSelect" style="min-width:360px"></select>
+    </div>
+  </div>
 
-<pre id="log"></pre>
+  <div class="card chars">
+    <div>
+      <h3 style="margin-top:0">Characteristic Inspector</h3>
+      <div id="charList"></div>
+    </div>
+
+    <div>
+      <h3 style="margin-top:0">Quick Controls</h3>
+
+      <div style="margin-bottom:10px">
+        <div class="small">LED Control (uses firmware UUIDs)</div>
+        <div class="led-controls" style="margin-top:8px">
+          <button id="ledOn" disabled>LED ON</button>
+          <button id="ledOff" disabled>LED OFF</button>
+        </div>
+        <div class="small" style="margin-top:8px;color:var(--muted)">Service: <code>1234abcd-0000-1000-8000-00805f9b34fb</code> &nbsp; Char: <code>abcd1234-0000-1000-8000-00805f9b34fb</code></div>
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="small">Logs</div>
+        <pre id="log"></pre>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
-const log = msg => {
-    document.getElementById("log").textContent += msg + "\n";
+/* Meshtastic-like Web BLE UI
+   - dynamic discovery (no fixed UUID needed)
+   - but includes quick LED controls mapped to your NimBLE firmware UUIDs
+*/
+
+const LED_SERVICE = '1234abcd-0000-1000-8000-00805f9b34fb';
+const LED_CHAR    = 'abcd1234-0000-1000-8000-00805f9b34fb';
+
+const el = {
+  connectBtn: document.getElementById('connectBtn'),
+  disconnectBtn: document.getElementById('disconnectBtn'),
+  reconnectBtn: document.getElementById('reconnectBtn'),
+  serviceSelect: document.getElementById('serviceSelect'),
+  charSelect: document.getElementById('charSelect'),
+  charList: document.getElementById('charList'),
+  log: document.getElementById('log'),
+  connState: document.getElementById('connState'),
+  deviceName: document.getElementById('deviceName'),
+  ledOn: document.getElementById('ledOn'),
+  ledOff: document.getElementById('ledOff'),
 };
 
 let bleDevice = null;
 let gattServer = null;
+let currentService = null;
+let currentCharacteristic = null;
+let discoveredServices = [];
+let discoveredChars = [];
 
-document.getElementById("connectBtn").addEventListener("click", async () => {
-    try {
-        log("Requesting BLE device...");
-        bleDevice = await navigator.bluetooth.requestDevice({
-            acceptAllDevices: true,
-            optionalServices: []   // we will discover dynamically
-        });
+// utility
+const L = (s) => { el.log.textContent += s + '\n'; el.log.scrollTop = el.log.scrollHeight; };
+const setState = (s, cls) => { el.connState.textContent = s; el.connState.className = cls; };
 
-        log("Connecting to GATT...");
-        gattServer = await bleDevice.gatt.connect();
+async function requestAndConnect() {
+  try {
+    L('Requesting BLE device...');
+    // acceptAllDevices = true gives Meshtastic-like chooser, optionalServices empty to discover later
+    bleDevice = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [] // dynamic discovery used
+    });
 
-        log("Connected. Discovering primary services...");
-        const services = await gattServer.getPrimaryServices();
+    el.deviceName.textContent = bleDevice.name || 'Unnamed';
+    L('Connecting to GATT...');
+    await connectDevice(bleDevice);
 
-        const serviceSelect = document.getElementById("serviceSelect");
-        serviceSelect.innerHTML = "";  // clear
-        serviceSelect.classList.remove("hidden");
+  } catch (err) {
+    L('Error: ' + err);
+    setState('Disconnected', 'disconnected');
+  }
+}
 
-        services.forEach(s => {
-            const opt = document.createElement("option");
-            opt.value = s.uuid;
-            opt.textContent = s.uuid;
-            serviceSelect.appendChild(opt);
-        });
-
-        log("Select a service from the dropdown above.");
-    } 
-    catch (err) {
-        log("Error: " + err);
+async function connectDevice(device) {
+  try {
+    if (!device) throw new Error('No device');
+    if (device.gatt && device.gatt.connected) {
+      L('Already connected');
+      gattServer = device.gatt;
+    } else {
+      gattServer = await device.gatt.connect();
     }
+
+    L('Connected. Discovering primary services...');
+    setState('Connected', 'connected');
+
+    // watch for disconnects
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+
+    // discover services
+    discoveredServices = await gattServer.getPrimaryServices();
+    populateServiceSelect(discoveredServices);
+
+    el.disconnectBtn.disabled = false;
+    el.reconnectBtn.disabled = false;
+    el.connectBtn.disabled = true;
+
+    // auto-select first service if any
+    if (discoveredServices.length > 0) {
+      el.serviceSelect.value = discoveredServices[0].uuid;
+      await onServiceSelected();
+    } else {
+      L('No services discovered.');
+    }
+  } catch (err) {
+    L('Connect error: ' + err);
+    setState('Disconnected', 'disconnected');
+  }
+}
+
+function populateServiceSelect(services) {
+  el.serviceSelect.innerHTML = '';
+  services.forEach((s) => {
+    const opt = document.createElement('option');
+    opt.value = s.uuid;
+    opt.textContent = s.uuid;
+    el.serviceSelect.appendChild(opt);
+  });
+  el.charSelect.innerHTML = '';
+  el.charList.innerHTML = '';
+}
+
+async function onServiceSelected() {
+  const uuid = el.serviceSelect.value;
+  if (!uuid) return;
+  L('Getting service ' + uuid);
+  currentService = await gattServer.getPrimaryService(uuid);
+  discoveredChars = await currentService.getCharacteristics();
+  populateCharSelect(discoveredChars);
+  showChars(discoveredChars);
+}
+
+function populateCharSelect(chars) {
+  el.charSelect.innerHTML = '';
+  chars.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.uuid;
+    opt.textContent = c.uuid;
+    el.charSelect.appendChild(opt);
+  });
+}
+
+function showChars(chars) {
+  el.charList.innerHTML = '';
+  if (!chars.length) {
+    el.charList.textContent = 'No characteristics';
+    return;
+  }
+  chars.forEach(c => {
+    const d = document.createElement('div');
+    d.className = 'char';
+    const props = [];
+    if (c.properties.read) props.push('read');
+    if (c.properties.write) props.push('write');
+    if (c.properties.writeWithoutResponse) props.push('writeNR');
+    if (c.properties.notify) props.push('notify');
+
+    d.innerHTML = `<h4>${c.uuid}</h4>
+      <div class="small">Props: ${props.join(', ') || '—'}</div>
+      <div style="margin-top:8px" id="controls-${c.uuid}"></div>
+      <div style="margin-top:8px" id="value-${c.uuid}" class="small">Value: —</div>
+    `;
+    el.charList.appendChild(d);
+    const ctrl = document.getElementById('controls-' + c.uuid);
+    buildCharControls(c, ctrl);
+  });
+}
+
+function buildCharControls(c, parent) {
+  // read button
+  if (c.properties.read) {
+    const btnRead = document.createElement('button');
+    btnRead.textContent = 'Read';
+    btnRead.className = 'secondary';
+    btnRead.onclick = async () => {
+      try {
+        const val = await c.readValue();
+        const text = decodeValue(val);
+        document.getElementById('value-' + c.uuid).textContent = 'Value: ' + text;
+        L('Read ' + c.uuid + ' -> ' + text);
+      } catch (e) { L('Read error: ' + e); }
+    };
+    parent.appendChild(btnRead);
+  }
+
+  // write input + button
+  if (c.properties.write || c.properties.writeWithoutResponse) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'text to write';
+    input.style.width = '60%';
+    const btnWrite = document.createElement('button');
+    btnWrite.textContent = 'Write';
+    btnWrite.onclick = async () => {
+      try {
+        const bytes = new TextEncoder().encode(input.value);
+        await c.writeValue(bytes);
+        L('Wrote to ' + c.uuid + ' -> ' + input.value);
+      } catch (e) { L('Write error: ' + e); }
+    };
+    parent.appendChild(input);
+    parent.appendChild(btnWrite);
+  }
+
+  // notify toggle
+  if (c.properties.notify) {
+    const btnNotify = document.createElement('button');
+    btnNotify.textContent = 'Toggle Notify';
+    let listening = false;
+    btnNotify.onclick = async () => {
+      try {
+        if (!listening) {
+          await c.startNotifications();
+          c.addEventListener('characteristicvaluechanged', (ev) => {
+            const text = decodeValue(ev.target.value);
+            document.getElementById('value-' + c.uuid).textContent = 'Value: ' + text;
+            L('Notify ' + c.uuid + ' -> ' + text);
+          });
+          btnNotify.textContent = 'Stop Notify';
+          listening = true;
+          L('Notifications started on ' + c.uuid);
+        } else {
+          await c.stopNotifications();
+          btnNotify.textContent = 'Toggle Notify';
+          listening = false;
+          L('Notifications stopped on ' + c.uuid);
+        }
+      } catch (e) { L('Notify error: ' + e); }
+    };
+    parent.appendChild(btnNotify);
+  }
+}
+
+function decodeValue(dataView) {
+  try {
+    // DataView -> Uint8Array -> string
+    const arr = new Uint8Array(dataView.buffer);
+    const text = new TextDecoder().decode(arr);
+    // if not printable, show hex
+    if (/[\x00-\x08\x0E-\x1F]/.test(text)) {
+      return '0x' + Array.from(arr).map(b => ('0'+b.toString(16)).slice(-2)).join('');
+    }
+    return text;
+  } catch (e) {
+    return '[decode error]';
+  }
+}
+
+async function onCharSelected() {
+  const uuid = el.charSelect.value;
+  if (!uuid) return;
+  const c = discoveredChars.find(x => x.uuid === uuid);
+  if (!c) return;
+  // scroll to that characteristic in the inspector, and highlight (simple)
+  const elChar = document.querySelector(`#value-${c.uuid}`);
+  if (elChar) elChar.scrollIntoView({behavior:'smooth',block:'center'});
+}
+
+// event handlers
+el.connectBtn.addEventListener('click', async () => {
+  // ensure HTTPS
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+    L('ERROR: Web Bluetooth requires HTTPS. Use GitHub Pages (https) or localhost with secure context.');
+    return;
+  }
+  await requestAndConnect();
 });
 
-
-document.getElementById("serviceSelect").addEventListener("change", async (e) => {
-    const uuid = e.target.value;
-    log("Getting service: " + uuid);
-
-    try {
-        const service = await gattServer.getPrimaryService(uuid);
-        const chars = await service.getCharacteristics();
-
-        log("\nCharacteristics of " + uuid + ":");
-        chars.forEach(c => log(" - " + c.uuid));
-    } 
-    catch (err) {
-        log("Error reading service: " + err);
-    }
+el.disconnectBtn.addEventListener('click', async () => {
+  if (!bleDevice) return;
+  if (bleDevice.gatt && bleDevice.gatt.connected) {
+    L('Disconnecting...');
+    bleDevice.gatt.disconnect();
+  }
 });
+
+el.reconnectBtn.addEventListener('click', async () => {
+  if (!bleDevice) { L('No device to reconnect. Please Connect.'); return; }
+  L('Reconnecting...');
+  try {
+    await connectDevice(bleDevice);
+  } catch (e) { L('Reconnect failed: ' + e); }
+});
+
+el.serviceSelect.addEventListener('change', async () => {
+  await onServiceSelected();
+});
+
+el.charSelect.addEventListener('change', onCharSelected);
+
+// LED quick control helpers
+el.ledOn.addEventListener('click', async () => { await writeLed('1'); });
+el.ledOff.addEventListener('click', async () => { await writeLed('0'); });
+
+async function writeLed(val) {
+  try {
+    // If connected and the LED characteristic is present on discovered services, use it.
+    // Otherwise, try to directly get the known service/char (firmware uses these UUIDs).
+    let char = null;
+    if (discoveredChars && discoveredChars.length) {
+      char = discoveredChars.find(c => c.uuid === LED_CHAR);
+    }
+    if (!char && gattServer) {
+      try {
+        const svc = await gattServer.getPrimaryService(LED_SERVICE);
+        char = await svc.getCharacteristic(LED_CHAR);
+      } catch (e) { /* not found */ }
+    }
+    if (!char) {
+      L('LED characteristic not found on device.');
+      return;
+    }
+    await char.writeValue(new TextEncoder().encode(val));
+    L('LED -> ' + (val === '1' ? 'ON' : 'OFF'));
+  } catch (e) {
+    L('LED write error: ' + e);
+  }
+}
+
+function onDisconnected(ev) {
+  const dev = ev.target;
+  L('Device disconnected: ' + (dev.name || dev.id));
+  setState('Disconnected', 'disconnected');
+  el.connectBtn.disabled = false;
+  el.disconnectBtn.disabled = true;
+  el.reconnectBtn.disabled = false;
+  el.deviceName.textContent = 'No device';
+  // Keep UI contents but mark disconnected
+}
+
+// auto reconnect attempt (simple, not aggressive)
+async function tryAutoReconnect() {
+  if (!bleDevice) return;
+  if (bleDevice.gatt.connected) return;
+  L('Auto-reconnect attempt...');
+  try {
+    await connectDevice(bleDevice);
+  } catch (e) {
+    L('Auto-reconnect failed: ' + e);
+  }
+}
+
+// initialize
+setState('Disconnected', 'disconnected');
+L('Ready. Click Connect to choose a device.');
 </script>
-
 </body>
 </html>
