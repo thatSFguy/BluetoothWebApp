@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Reloading Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'primary': '#1d4ed8',
+                        'secondary': '#f97316',
+                        'success': '#10b981',
+                        'danger': '#ef4444',
+                        'warning': '#f59e0b',
+                        'background': '#f1f5f9',
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f1f5f9; /* background */
+        }
+        /* Custom scrollbar for better feel */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+    <div id="app" class="flex-grow flex flex-col items-center p-4 sm:p-6">
+        <header class="w-full max-w-4xl text-center py-4 bg-white rounded-xl shadow-lg mb-6">
+            <h1 class="text-2xl sm:text-3xl font-bold text-gray-800">Reloading Press Monitor</h1>
+            <p class="text-sm text-gray-500">Real-time status via Bluetooth Low Energy (BLE)</p>
+        </header>
+
+        <!-- Connection and Status Panel -->
+        <div class="w-full max-w-4xl bg-white p-4 rounded-xl shadow-md mb-6 flex flex-col sm:flex-row items-center justify-between transition-all duration-300" id="connection-panel">
+            <div class="flex items-center space-x-3 mb-4 sm:mb-0">
+                <div id="connection-dot" class="w-4 h-4 rounded-full bg-danger animate-pulse transition-colors duration-300"></div>
+                <p id="connection-status" class="font-semibold text-gray-700">Disconnected</p>
+            </div>
+            <button id="connect-button" class="w-full sm:w-auto px-6 py-2 bg-primary text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-colors disabled:opacity-50" onclick="handleConnect()">
+                Connect to ESP32
+            </button>
+        </div>
+
+        <!-- Main Content (Dashboard/Settings Tabs) -->
+        <div class="w-full max-w-4xl bg-white rounded-xl shadow-xl p-4 sm:p-6">
+            <div class="flex border-b border-gray-200">
+                <button id="tab-dashboard" class="py-2 px-4 font-medium text-lg border-b-2 border-primary text-primary transition-all duration-200" onclick="showTab('dashboard')">
+                    Dashboard
+                </button>
+                <button id="tab-settings" class="py-2 px-4 font-medium text-lg border-b-2 border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 transition-all duration-200" onclick="showTab('settings')">
+                    Settings
+                </button>
+            </div>
+
+            <!-- DASHBOARD VIEW -->
+            <div id="view-dashboard" class="pt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                <!-- Rounds Counter Card -->
+                <div class="lg:col-span-1 bg-gray-50 p-5 rounded-lg border border-gray-200 shadow-inner">
+                    <h2 class="text-xl font-bold text-gray-800 mb-2">Completed Rounds</h2>
+                    <p id="round-count" class="text-5xl font-extrabold text-primary">0</p>
+                    <p class="text-sm text-gray-500 mt-1">Total count since last reset.</p>
+                </div>
+
+                <!-- Powder Level Card -->
+                <div class="lg:col-span-2 bg-white p-5 rounded-lg border border-gray-200 shadow-md">
+                    <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center justify-between">
+                        <span>Powder Level</span>
+                        <span id="powder-status-text" class="text-sm font-semibold text-success">OK</span>
+                    </h2>
+                    <div class="w-full bg-gray-200 rounded-full h-4 relative">
+                        <div id="powder-bar" class="h-4 rounded-full bg-success transition-all duration-500" style="width: 100%;"></div>
+                        <div class="absolute inset-0 flex items-center justify-center text-xs font-bold text-white" id="powder-percentage">100%</div>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-2">Current powder distance: <span id="powder-dist" class="font-mono">-- mm</span></p>
+                </div>
+
+                <!-- Sensor Status Grid -->
+                <div class="lg:col-span-3">
+                    <h2 class="text-xl font-bold text-gray-800 mb-4">Sensor Status</h2>
+                    <div id="sensor-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                        <!-- Sensor Cards will be dynamically inserted here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- SETTINGS VIEW -->
+            <div id="view-settings" class="pt-6 hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Motor & Sensor Configuration</h2>
+                <div class="space-y-6">
+
+                    <!-- Motor Control Card -->
+                    <div class="bg-gray-50 p-5 rounded-lg border border-gray-200 shadow-inner">
+                        <h3 class="text-xl font-bold text-gray-800 mb-3">Master Motor Control</h3>
+                        <div class="flex items-center justify-between py-2 border-b border-gray-200">
+                            <label for="motor-enabled" class="text-gray-700 font-medium">Enable Motor Control</label>
+                            <input type="checkbox" id="motor-enabled" class="toggle-switch" onchange="sendMotorConfig(this)">
+                        </div>
+                        <div class="flex items-center justify-between py-2">
+                            <label for="motor-direction" class="text-gray-700 font-medium">Motor Direction</label>
+                            <div class="flex items-center space-x-4">
+                                <span class="text-sm text-gray-500">FORWARD</span>
+                                <input type="checkbox" id="motor-direction" class="toggle-switch" onchange="sendMotorConfig(this)">
+                                <span class="text-sm text-gray-500">REVERSE</span>
+                            </div>
+                        </div>
+                        <p class="text-xs text-warning mt-4">
+                            Note: Motor safety interlocks (E-STOP, Sensor Alerts) on the device will override this setting.
+                        </p>
+                    </div>
+
+                    <!-- Sensor Toggles -->
+                    <div class="bg-white p-5 rounded-lg border border-gray-200 shadow-md">
+                        <h3 class="text-xl font-bold text-gray-800 mb-3">Enable/Disable Sensors</h3>
+                        <div id="settings-sensor-list" class="space-y-2">
+                            <!-- Sensor toggles will be dynamically inserted here -->
+                        </div>
+                        <button class="mt-4 px-4 py-2 bg-success text-white font-semibold rounded-lg hover:bg-green-700 transition-colors" onclick="sendAllSensorConfigs()">
+                            Apply All Settings
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- Notification/Message Modal -->
+        <div id="message-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50">
+            <div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-sm">
+                <h3 id="modal-title" class="text-lg font-bold text-gray-800 mb-2">Error</h3>
+                <p id="modal-content" class="text-gray-600 mb-4">Something went wrong.</p>
+                <button class="w-full px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-blue-700" onclick="closeModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global State
+        let bleDevice = null;
+        let configCharacteristic = null; // Write characteristic
+        const SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+        const STATUS_CHAR_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+        const CONFIG_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // Assuming a different UUID for the second characteristic, common in UART services.
+
+        // Mapping from ESP32 ID to friendly names/types
+        const sensorMap = {
+            'PDR': { name: 'Powder Level', status: 1, enabled: true, isAlert: true },
+            'PMR': { name: 'Primers Low', status: 1, enabled: true, isAlert: true },
+            'CAS': { name: 'Cases Low', status: 1, enabled: true, isAlert: true },
+            'BLT': { name: 'Bullets Low', status: 1, enabled: true, isAlert: true },
+            'SWG': { name: 'Swage Complete', status: 1, enabled: false, isAlert: false },
+            'SPT': { name: 'Spent Primer Check', status: 1, enabled: false, isAlert: true },
+            // Motor and count state are handled separately in the UI
+            'CNT': { name: 'Rounds Counter', status: 0, enabled: true, isAlert: false },
+            'MOT_EN': { name: 'Motor Control Enabled', status: 0, type: 'motor' },
+            'MOT_RUN': { name: 'Motor Running', status: 0, type: 'motor' },
+            'MOT_DIR': { name: 'Motor Direction (Reverse)', status: 0, type: 'motor' },
+            'ESTOP': { name: 'Emergency Stop Engaged', status: 0, isAlert: true },
+        };
+        
+        // Initial setup and dynamic UI generation
+        document.addEventListener('DOMContentLoaded', () => {
+            generateSensorCards();
+            generateSettingsToggles();
+            // Apply initial Tailwind styling to toggles
+            document.querySelectorAll('.toggle-switch').forEach(el => {
+                el.classList.add('h-6', 'w-12', 'rounded-full', 'appearance-none', 'cursor-pointer', 'transition-colors', 'duration-200', 'bg-gray-300', 'checked:bg-success', 'checked:right-0', 'relative', 'focus:outline-none');
+                el.style.backgroundImage = 'url("data:image/svg+xml,%3csvg viewBox=\\'0 0 24 24\\' fill=\\'none\\' xmlns=\\'http://www.w3.org/2000/svg\\'%3e%3ccircle cx=\\'12\\' cy=\\'12\\' r=\\'12\\' fill=\\'%23fff\\'/%3e%3c/svg%3e")';
+                el.style.backgroundPosition = 'right 2px center';
+                el.style.backgroundRepeat = 'no-repeat';
+                el.style.backgroundSize = '20px';
+                el.style.paddingLeft = '2px';
+            });
+        });
+
+        // --- UI & Utility Functions ---
+
+        function showModal(title, content) {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-content').textContent = content;
+            document.getElementById('message-modal').classList.remove('hidden');
+            document.getElementById('message-modal').classList.add('flex');
+        }
+
+        function closeModal() {
+            document.getElementById('message-modal').classList.add('hidden');
+            document.getElementById('message-modal').classList.remove('flex');
+        }
+
+        function showTab(tabName) {
+            const tabs = ['dashboard', 'settings'];
+            tabs.forEach(tab => {
+                document.getElementById(`view-${tab}`).classList.toggle('hidden', tab !== tabName);
+                document.getElementById(`tab-${tab}`).classList.remove('border-primary', 'text-primary', 'border-gray-300', 'text-gray-500', 'hover:border-gray-300', 'hover:text-gray-700');
+                if (tab === tabName) {
+                    document.getElementById(`tab-${tab}`).classList.add('border-primary', 'text-primary');
+                } else {
+                    document.getElementById(`tab-${tab}`).classList.add('border-transparent', 'text-gray-500', 'hover:border-gray-300', 'hover:text-gray-700');
+                }
+            });
+        }
+
+        function generateSensorCards() {
+            const grid = document.getElementById('sensor-grid');
+            grid.innerHTML = '';
+            // Skip PDR (Powder) and internal motor/count flags
+            const keys = Object.keys(sensorMap).filter(id => !['PDR', 'MOT_EN', 'MOT_RUN', 'MOT_DIR', 'CNT'].includes(id));
+            
+            keys.forEach(id => {
+                const sensor = sensorMap[id];
+                const card = document.createElement('div');
+                card.id = `card-${id}`;
+                card.className = 'bg-white p-4 rounded-lg border shadow-sm transition-all duration-300';
+                card.innerHTML = `
+                    <p class="text-sm font-medium text-gray-500">${sensor.name}</p>
+                    <p id="status-${id}" class="text-2xl font-bold mt-1 text-gray-800">--</p>
+                    <span id="badge-${id}" class="inline-block px-3 py-1 text-xs font-semibold rounded-full mt-2"></span>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function generateSettingsToggles() {
+            const list = document.getElementById('settings-sensor-list');
+            list.innerHTML = '';
+            // Filter to only include configurable sensors (those with 'enabled' field and not PDR)
+            const keys = Object.keys(sensorMap).filter(id => sensorMap[id].hasOwnProperty('enabled') && id !== 'PDR');
+            
+            keys.forEach(id => {
+                const sensor = sensorMap[id];
+                const item = document.createElement('div');
+                item.className = 'flex items-center justify-between py-2 border-b border-gray-100';
+                item.innerHTML = `
+                    <label for="config-${id}" class="text-gray-700 font-medium">${sensor.name}</label>
+                    <input type="checkbox" id="config-${id}" data-id="${id}" class="toggle-switch" onchange="markForUpdate('${id}', this.checked)">
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        // --- BLE Logic ---
+
+        function handleConnect() {
+            if (bleDevice && bleDevice.gatt.connected) {
+                // If connected, disconnect
+                bleDevice.gatt.disconnect();
+                return;
+            }
+
+            if (!navigator.bluetooth) {
+                showModal("Bluetooth Error", "Web Bluetooth API is not available in this browser. Please use Chrome, Edge, or an Android device.");
+                return;
+            }
+
+            document.getElementById('connect-button').disabled = true;
+            document.getElementById('connect-button').textContent = 'Connecting...';
+            updateConnectionStatus('Connecting...', 'warning');
+
+            navigator.bluetooth.requestDevice({
+                filters: [{ services: [SERVICE_UUID] }],
+                optionalCharacteristics: [STATUS_CHAR_UUID, CONFIG_CHAR_UUID]
+            })
+            .then(device => {
+                bleDevice = device;
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+                return device.gatt.connect();
+            })
+            .then(server => server.getPrimaryService(SERVICE_UUID))
+            .then(service => {
+                // 1. Get CONFIG characteristic (Write)
+                return service.getCharacteristic(CONFIG_CHAR_UUID)
+                    .then(char => {
+                        configCharacteristic = char;
+                        // 2. Get STATUS characteristic (Notify/Read)
+                        return service.getCharacteristic(STATUS_CHAR_UUID);
+                    })
+                    .then(char => {
+                        // Start listening for notifications
+                        char.startNotifications();
+                        char.addEventListener('characteristicvaluechanged', handleStatusUpdate);
+                        
+                        updateConnectionStatus('Connected', 'success');
+                        document.getElementById('connect-button').textContent = 'Disconnect';
+                        
+                        // Send current config to ESP32 after connection to ensure sync
+                        sendAllSensorConfigs(true);
+                        sendMotorConfig(document.getElementById('motor-enabled'), true);
+                        sendMotorConfig(document.getElementById('motor-direction'), true);
+                    });
+            })
+            .catch(error => {
+                console.error('BLE Connection Error:', error);
+                updateConnectionStatus('Disconnected', 'danger');
+                document.getElementById('connect-button').textContent = 'Connect to ESP32';
+                showModal("Connection Failed", `Could not connect to the device. Error: ${error.message}`);
+            })
+            .finally(() => {
+                document.getElementById('connect-button').disabled = false;
+            });
+        }
+
+        function onDisconnected(event) {
+            const device = event.target;
+            console.log(`Device ${device.name} disconnected.`);
+            updateConnectionStatus('Disconnected', 'danger');
+            document.getElementById('connect-button').textContent = 'Connect to ESP32';
+            bleDevice = null;
+            configCharacteristic = null;
+            // Clear status fields
+            document.getElementById('round-count').textContent = '0';
+        }
+
+        function updateConnectionStatus(text, color) {
+            const dot = document.getElementById('connection-dot');
+            dot.className = `w-4 h-4 rounded-full bg-${color} ${color === 'warning' ? 'animate-pulse' : ''} transition-colors duration-300`;
+            document.getElementById('connection-status').textContent = text;
+        }
+
+        function handleStatusUpdate(event) {
+            const value = event.target.value;
+            // Data received as a string, e.g., "PDR=85,PMR=1,CAS=0,BLT=1,CNT=123"
+            const dataView = new TextDecoder('utf-8');
+            const statusString = dataView.decode(value);
+            
+            console.log("RX: " + statusString);
+
+            const parts = statusString.split(',');
+            let motorRunning = false;
+            
+            parts.forEach(part => {
+                const [id, valStr] = part.split('=');
+                const val = parseInt(valStr);
+
+                if (id === 'CNT') {
+                    document.getElementById('round-count').textContent = val;
+                } else if (id === 'PDR') {
+                    updatePowderUI(val);
+                } else if (id === 'MOT_RUN') {
+                    motorRunning = (val === 1);
+                } else if (sensorMap[id]) {
+                    sensorMap[id].status = val;
+                    updateSensorCardUI(id, val);
+                }
+            });
+            
+            // Update Motor Status Light
+            const motorStatusText = motorRunning ? 'RUNNING' : (sensorMap['MOT_EN'].status === 1 ? 'READY' : 'OFFLINE');
+            const motorStatusColor = motorRunning ? 'bg-success' : (sensorMap['MOT_EN'].status === 1 ? 'bg-warning' : 'bg-gray-400');
+            
+            document.getElementById('status-MOT_RUN').textContent = motorStatusText;
+            document.getElementById('badge-MOT_RUN').className = `inline-block px-3 py-1 text-xs font-semibold rounded-full mt-2 ${motorStatusColor} text-white`;
+
+            // If E-STOP is active, alert the user
+            if (sensorMap['ESTOP'].status === 1) {
+                 showModal("EMERGENCY STOP", "The physical E-STOP button is engaged! The machine has been stopped.");
+            }
+        }
+        
+        function updatePowderUI(percentage) {
+            const bar = document.getElementById('powder-bar');
+            const text = document.getElementById('powder-percentage');
+            const statusText = document.getElementById('powder-status-text');
+            const distText = document.getElementById('powder-dist');
+
+            // Handle sensor error case (-1)
+            if (percentage < 0) {
+                 bar.style.width = '100%';
+                 bar.className = 'h-4 rounded-full bg-danger transition-all duration-500';
+                 text.textContent = 'ERR';
+                 statusText.textContent = 'SENSOR ERROR';
+                 statusText.className = 'text-sm font-semibold text-danger';
+                 distText.textContent = 'N/A';
+                 return;
+            }
+            
+            bar.style.width = `${percentage}%`;
+            text.textContent = `${percentage}%`;
+
+            let color = 'success';
+            let status = 'OK';
+            if (percentage < 20 && percentage >= 5) {
+                color = 'warning';
+                status = 'LOW';
+            } else if (percentage < 5) {
+                color = 'danger';
+                status = 'CRITICAL';
+            }
+            
+            bar.className = `h-4 rounded-full bg-${color} transition-all duration-500`;
+            statusText.textContent = status;
+            statusText.className = `text-sm font-semibold text-${color}`;
+            
+            // We don't get distance, but we can update the status based on percentage
+            distText.textContent = `${percentage}% (Est.)`;
+        }
+
+        function updateSensorCardUI(id, status) {
+            const sensor = sensorMap[id];
+            const statusEl = document.getElementById(`status-${id}`);
+            const badgeEl = document.getElementById(`badge-${id}`);
+            const cardEl = document.getElementById(`card-${id}`);
+
+            if (!sensor) return;
+            
+            const isAlert = sensor.isAlert;
+            const statusText = status === 1 ? 'OK' : (status === 0 ? (isAlert ? 'ALERT' : 'TRIGGERED') : 'DISABLED');
+            const color = status === 1 ? 'success' : (status === 0 ? (isAlert ? 'danger' : 'warning') : 'gray-400');
+            const bgColor = status === 1 ? 'bg-success/10' : (status === 0 ? 'bg-danger/10' : 'bg-gray-200');
+            const textColor = status === 1 ? 'text-success' : (status === 0 ? 'text-danger' : 'text-gray-500');
+
+            statusEl.textContent = statusText;
+            statusEl.className = `text-2xl font-bold mt-1 text-${color}`;
+            
+            badgeEl.textContent = sensor.enabled ? 'Active' : 'Disabled';
+            badgeEl.className = `inline-block px-3 py-1 text-xs font-semibold rounded-full mt-2 text-white bg-gray-500`; // Always show enablement status here
+
+            cardEl.className = `bg-white p-4 rounded-lg border shadow-sm transition-all duration-300 ${bgColor} border-${color}`;
+        }
+        
+        // --- Configuration Sending ---
+
+        let configChanges = {};
+
+        function markForUpdate(id, enabled) {
+            configChanges[id] = enabled ? 1 : 0;
+            // Optionally, update the local sensor map state immediately for UI consistency
+            if (sensorMap[id]) {
+                sensorMap[id].enabled = enabled;
+            }
+        }
+
+        function sendData(data) {
+            if (!configCharacteristic) {
+                showModal("Connection Required", "Please connect to the ESP32 first to send configuration changes.");
+                return;
+            }
+            
+            console.log("TX: " + data);
+
+            // Convert string to ArrayBuffer for BLE Write
+            const encoder = new TextEncoder();
+            const value = encoder.encode(data);
+            
+            configCharacteristic.writeValue(value).catch(error => {
+                console.error("BLE Write Error:", error);
+                showModal("Write Failed", `Could not send configuration to device. Error: ${error.message}`);
+            });
+        }
+
+        function sendAllSensorConfigs() {
+            if (Object.keys(configChanges).length === 0) {
+                console.log("No sensor changes to send.");
+                return;
+            }
+            
+            // Format: ID=Status,ID=Status,...
+            const configString = Object.entries(configChanges)
+                .map(([id, status]) => `${id}=${status}`)
+                .join(',');
+            
+            sendData(configString);
+            configChanges = {}; // Clear pending changes
+        }
+
+        function sendMotorConfig(element, initialSync = false) {
+            const id = element.id === 'motor-enabled' ? 'MOT' : (element.id === 'motor-direction' ? 'DIR' : null);
+            if (!id) return;
+            
+            const status = element.checked ? 1 : 0;
+            
+            // Update local state (for motor status display consistency)
+            if (id === 'MOT') sensorMap['MOT_EN'].status = status;
+            if (id === 'DIR') sensorMap['MOT_DIR'].status = status;
+
+            // Only send if connected or if it's an initial sync (where sendData handles the connection check)
+            if (configCharacteristic || initialSync) {
+                sendData(`${id}=${status}`);
+            }
+        }
+
+    </script>
+</body>
+</html>
