@@ -77,7 +77,7 @@
           <button id="ledOn" disabled>LED ON</button>
           <button id="ledOff" disabled>LED OFF</button>
         </div>
-        <div class="small" style="margin-top:8px;color:var(--muted)">Service: <code>1234abcd-0000-1000-8000-00805f9b34fb</code> &nbsp; Char: <code>abcd1234-0000-1000-8000-00805f9b34fb</code></div>
+        <div class="small" style="margin-top:8px;color:var(--muted)">Service: <code>6e400001-b5a3-f393-e0a9-e50e24dcca9e</code> &nbsp; Char: <code>6e400002-b5a3-f393-e0a9-e50e24dcca9e</code></div>
       </div>
 
       <div style="margin-top:12px">
@@ -91,11 +91,12 @@
 <script>
 /* Meshtastic-like Web BLE UI
    - dynamic discovery (no fixed UUID needed)
-   - but includes quick LED controls mapped to your NimBLE firmware UUIDs
+   - but includes quick LED controls mapped to your firmware UUIDs
 */
 
-const LED_SERVICE = '1234abcd-0000-1000-8000-00805f9b34fb';
-const LED_CHAR    = 'abcd1234-0000-1000-8000-00805f9b34fb';
+// THESE MUST MATCH YOUR FIRMWARE (copied from your sketch)
+const LED_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const LED_CHAR    = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 
 const el = {
   connectBtn: document.getElementById('connectBtn'),
@@ -125,10 +126,10 @@ const setState = (s, cls) => { el.connState.textContent = s; el.connState.classN
 async function requestAndConnect() {
   try {
     L('Requesting BLE device...');
-    // acceptAllDevices = true gives Meshtastic-like chooser, optionalServices empty to discover later
+    // request the LED service specifically so the browser can access it
     bleDevice = await navigator.bluetooth.requestDevice({
       acceptAllDevices: true,
-      optionalServices: [] // dynamic discovery used
+      optionalServices: [LED_SERVICE]
     });
 
     el.deviceName.textContent = bleDevice.name || 'Unnamed';
@@ -198,6 +199,17 @@ async function onServiceSelected() {
   discoveredChars = await currentService.getCharacteristics();
   populateCharSelect(discoveredChars);
   showChars(discoveredChars);
+
+  // if the LED characteristic is present, enable quick buttons
+  const ledChar = discoveredChars.find(c => c.uuid === LED_CHAR);
+  if (ledChar) {
+    el.ledOn.disabled = false;
+    el.ledOff.disabled = false;
+    L('LED characteristic found — quick controls enabled.');
+  } else {
+    el.ledOn.disabled = true;
+    el.ledOff.disabled = true;
+  }
 }
 
 function populateCharSelect(chars) {
@@ -395,6 +407,8 @@ function onDisconnected(ev) {
   el.disconnectBtn.disabled = true;
   el.reconnectBtn.disabled = false;
   el.deviceName.textContent = 'No device';
+  el.ledOn.disabled = true;
+  el.ledOff.disabled = true;
   // Keep UI contents but mark disconnected
 }
 
