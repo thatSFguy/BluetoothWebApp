@@ -8,7 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* Custom font */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght100..900&display=swap');
         body {
             font-family: 'Inter', sans-serif;
             background-color: #0d1117; /* Dark background */
@@ -320,11 +320,15 @@
             updateConnectionStatus('Scanning...', false);
 
             try {
-                // 1. Request device - Using namePrefix for reliable discovery
+                // 1. Request device - Using both namePrefix and service filter for guaranteed access
                 device = await navigator.bluetooth.requestDevice({
-                    // Use namePrefix to find the device reliably
-                    filters: [{ namePrefix: DEVICE_NAME_PREFIX }],
-                    // Use optionalServices to gain permission to access the NUS service after connection
+                    filters: [
+                        { namePrefix: DEVICE_NAME_PREFIX },
+                        // Include the service UUID here to ensure permission is granted
+                        { services: [SERVICE_UUID] }
+                    ],
+                    // We still need optionalServices if we access other services, but for a single service,
+                    // listing it in filters is usually sufficient and required for permissions.
                     optionalServices: [SERVICE_UUID] 
                 });
 
@@ -336,12 +340,15 @@
                 // 2. Connect to GATT Server
                 const server = await device.gatt.connect();
 
-                // 3. Get Service
+                log('GATT connected. Fetching service...');
+                // 3. Get Service (This step should now work as permission was explicitly granted)
                 const service = await server.getPrimaryService(SERVICE_UUID);
 
+                log('Service found. Fetching characteristic...');
                 // 4. Get Data Characteristic
                 dataCharacteristic = await service.getCharacteristic(DATA_CHARACTERISTIC_UUID);
                 
+                log('Characteristic found. Starting notifications...');
                 // 5. Subscribe to Notifications
                 await dataCharacteristic.startNotifications();
                 dataCharacteristic.addEventListener('characteristicvaluechanged', handleData);
@@ -355,13 +362,13 @@
                 log(`[${new Date().toLocaleTimeString()}] Connection established.`);
 
             } catch (error) {
-                log(`BLE Error: ${error.message}`, true);
+                log(`BLE Error: GATT Error: Not supported. Full message: ${error.message}`, true);
                 if (error.name !== "NotFoundError") {
                    updateConnectionStatus('Error', false);
                 } else {
-                   // This is the common case when the device is not found or user cancels
+                   // Scan cancelled or device not found
                    updateConnectionStatus('Scan Failed', false);
-                   log('Scan cancelled or device not found. Ensure ESP32 is nearby and has the name prefix: ' + DEVICE_NAME_PREFIX, true);
+                   log('Scan cancelled or device not found.', true);
                 }
             }
         }
