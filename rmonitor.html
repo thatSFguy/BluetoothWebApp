@@ -91,6 +91,7 @@
             <div class="flex border-b border-gray-700">
                 <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="commands">Commands</button>
                 <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="settings">Settings</button>
+                <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="recipes">Load Recipes</button>
             </div>
 
             <!-- Commands Tab -->
@@ -137,7 +138,42 @@
                     </div>
                 </div>
             </div>
+            <!-- NEW: Load Recipes Tab -->
+        <div id="tab-recipes" class="tab hidden mt-6">
+            <div class="flex justify-between items-center mb-4">
+                <h4 class="font-bold text-lg">Load Recipe Book</h4>
+                <div class="flex gap-2">
+                    <button onclick="exportRecipes()" class="px-3 py-1 bg-green-600 hover:bg-green-700 text-sm rounded">Export JSON</button>
+                    <label class="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-sm rounded cursor-pointer">
+                        Import JSON <input type="file" id="importFile" accept=".json" onchange="importRecipes(event)" class="hidden">
+                    </label>
+                    <button onclick="addNewRecipe()" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-sm rounded">+ Add Recipe</button>
+                </div>
+            </div>
 
+            <div class="overflow-x-auto">
+                <table id="recipesTable" class="w-full text-sm text-left">
+                    <thead class="bg-gray-700">
+                        <tr>
+                            <th class="px-3 py-2">ID</th>
+                            <th class="px-3 py-2">Caliber</th>
+                            <th class="px-3 py-2">Notes</th>
+                            <th class="px-3 py-2">Case</th>
+                            <th class="px-3 py-2">Primer</th>
+                            <th class="px-3 py-2">Bullet</th>
+                            <th class="px-3 py-2">Powder</th>
+                            <th class="px-3 py-2">Firearm</th>
+                            <th class="px-3 py-2">FPS</th>
+                            <th class="px-3 py-2 font-bold text-yellow-400">PF</th>
+                            <th class="px-3 py-2">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recipesBody">
+                        <!-- Rows inserted by JS -->
+                    </tbody>
+                </table>
+            </div>
+            <p class="small-muted mt-4">Data is saved automatically in your browser. Use Export/Import to backup or transfer.</p>
         </div>
     </section>
 </div>
@@ -514,6 +550,166 @@ window.addEventListener('keydown', (e) => {
         connectBLE();
     }
 });
+
+    /* ==================== LOAD RECIPES SYSTEM ==================== */
+const STORAGE_KEY = 'reloading_press_recipes_v1';
+
+const commonOptions = {
+    caliber: ['9mm Luger', '40 S&W', '45 ACP', '38 Special', '357 Magnum', '223 Rem', '308 Win', '6.5 Creedmoor', 'Other'],
+    mfg: ['Winchester', 'Federal', 'CCI', 'Remington', 'Hornady', 'Lapua', 'Starline', 'Speer', 'Nosler', 'Sierra', 'Other'],
+    primerType: ['Small Pistol', 'Large Pistol', 'Small Rifle', 'Large Rifle'],
+    bulletType: ['FMJ', 'JHP', 'LFP', 'HPBT', 'Polymer Tip', 'Soft Point', 'Other']
+};
+
+let recipes = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+let nextId = recipes.length > 0 ? Math.max(...recipes.map(r => r.id)) + 1 : 1;
+
+function saveRecipes() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes));
+}
+
+function renderRecipes() {
+    const tbody = document.getElementById('recipesBody');
+    tbody.innerHTML = '';
+
+    recipes.sort((a, b) => a.id - b.id);
+
+    recipes.forEach(recipe => {
+        const tr = document.createElement('tr');
+        tr.className = 'border-t border-gray-700 hover:bg-gray-700/50';
+        tr.innerHTML = `
+            <td class="px-3 py-2">${recipe.id}</td>
+            <td class="px-3 py-2">
+                <select class="bg-gray-800 rounded px-1 py-0.5 text-sm w-full" onchange="updateRecipe(${recipe.id}, 'caliber', this.value)">${optionsHtml(commonOptions.caliber, recipe.caliber)}</select>
+            </td>
+            <td class="px-3 py-2">
+                <input type="text" maxlength="200" class="bg-gray-800 rounded px-1 py-0.5 text-sm w-full" value="${escapeHtml(recipe.notes || '')}" onchange="updateRecipe(${recipe.id}, 'notes', this.value)">
+            </td>
+            <td class="px-3 py-2 text-xs">
+                <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'caseMfg', this.value)">${optionsHtml(commonOptions.mfg, recipe.caseMfg)}</select><br>
+                <input type="number" step="0.001" placeholder="Length" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.caseLength || ''}" onchange="updateRecipe(${recipe.id}, 'caseLength', this.value)">
+                <input type="number" step="0.001" placeholder="OAL" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.caseOal || ''}" onchange="updateRecipe(${recipe.id}, 'caseOal', this.value)">
+            </td>
+            <td class="px-3 py-2 text-xs">
+                <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'primerMfg', this.value)">${optionsHtml(commonOptions.mfg, recipe.primerMfg)}</select><br>
+                <select class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" onchange="updateRecipe(${recipe.id}, 'primerType', this.value)">${optionsHtml(commonOptions.primerType, recipe.primerType)}</select>
+            </td>
+            <td class="px-3 py-2 text-xs">
+                <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'bulletMfg', this.value)">${optionsHtml(commonOptions.mfg, recipe.bulletMfg)}</select><br>
+                <input type="text" maxlength="50" placeholder="Type" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${escapeHtml(recipe.bulletType || '')}" onchange="updateRecipe(${recipe.id}, 'bulletType', this.value)">
+                <input type="number" placeholder="Grain" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.bulletGrain || ''}" onchange="updateRecipe(${recipe.id}, 'bulletGrain', this.value); recalcPF(${recipe.id})">
+            </td>
+            <td class="px-3 py-2 text-xs">
+                <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'powderMfg', this.value)">${optionsHtml(commonOptions.mfg, recipe.powderMfg)}</select><br>
+                <input type="text" maxlength="50" placeholder="Type" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${escapeHtml(recipe.powderType || '')}" onchange="updateRecipe(${recipe.id}, 'powderType', this.value)">
+                <input type="number" step="0.1" placeholder="Grains" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.powderGrain || ''}" onchange="updateRecipe(${recipe.id}, 'powderGrain', this.value)">
+            </td>
+            <td class="px-3 py-2">
+                <input type="text" maxlength="20" class="bg-gray-800 rounded px-1 py-0.5 w-20" value="${escapeHtml(recipe.firearm || '')}" onchange="updateRecipe(${recipe.id}, 'firearm', this.value)">
+            </td>
+            <td class="px-3 py-2">
+                <input type="number" max="9999" class="bg-gray-800 rounded px-1 py-0.5 w-20" value="${recipe.fps || ''}" onchange="updateRecipe(${recipe.id}, 'fps', this.value); recalcPF(${recipe.id})">
+            </td>
+            <td class="px-3 py-2 font-bold text-yellow-400" id="pf-${recipe.id}">${calculatePF(recipe.bulletGrain, recipe.fps)}</td>
+            <td class="px-3 py-2 text-center">
+                <button onclick="deleteRecipe(${recipe.id})" class="text-red-400 hover:text-red-300 text-xs">Delete</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function optionsHtml(options, selected) {
+    return options.map(opt => `<option value="${opt}" ${opt === selected ? 'selected' : ''}>${opt}</option>`).join('');
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function updateRecipe(id, field, value) {
+    const recipe = recipes.find(r => r.id === id);
+    if (!recipe) return;
+    recipe[field] = value;
+    saveRecipes();
+}
+
+function recalcPF(id) {
+    const recipe = recipes.find(r => r.id === id);
+    if (!recipe) return;
+    const pf = calculatePF(recipe.bulletGrain, recipe.fps);
+    document.getElementById(`pf-${id}`).textContent = pf;
+}
+
+function calculatePF(grain, fps) {
+    if (!grain || !fps) return '--';
+    return (grain * fps / 1000).toFixed(1);
+}
+
+function addNewRecipe() {
+    const newRecipe = {
+        id: nextId++,
+        caliber: '9mm Luger',
+        notes: '',
+        caseMfg: '', caseLength: '', caseOal: '',
+        primerMfg: '', primerType: '',
+        bulletMfg: '', bulletType: '', bulletGrain: '',
+        powderMfg: '', powderType: '', powderGrain: '',
+        firearm: '', fps: '', pf: ''
+    };
+    recipes.push(newRecipe);
+    saveRecipes();
+    renderRecipes();
+}
+
+function deleteRecipe(id) {
+    if (confirm('Delete recipe ID ' + id + '?')) {
+        recipes = recipes.filter(r => r.id !== id);
+        saveRecipes();
+        renderRecipes();
+    }
+}
+
+function exportRecipes() {
+    const data = JSON.stringify(recipes, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `reloading_recipes_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function importRecipes(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        try {
+            const imported = JSON.parse(e.target.result);
+            if (!Array.isArray(imported)) throw new Error("Invalid format");
+            recipes = imported;
+            nextId = recipes.length > 0 ? Math.max(...recipes.map(r => r.id)) + 1 : 1;
+            saveRecipes();
+            renderRecipes();
+            showMessage("Recipes imported successfully!", "info");
+        } catch (err) {
+            alert("Import failed: " + err.message);
+        }
+    };
+    reader.readAsText(file);
+}
+
+// Auto-render when tab is opened
+document.querySelector('[data-tab="recipes"]').addEventListener('click', () => {
+    renderRecipes();
+});
+
+// Initial render on page load (in case user opens the tab first)
+renderRecipes();
 </script>
 
 </body>
