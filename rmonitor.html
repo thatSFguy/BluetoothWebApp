@@ -7,39 +7,59 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            color: #e5e7eb; /* Light gray text */
+        }
         .data-card {
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
-        .status-indicator {
-            width: 1rem;
-            height: 1rem;
-            border-radius: 50%;
-            display: inline-block;
+        
+        /* Flashing Effect for Critical Alerts */
+        @keyframes pulse-red {
+            0%, 100% { background-color: #991b1b; } /* Red 800 */
+            50% { background-color: #ef4444; } /* Red 500 */
+        }
+        
+        /* Status Tiles (Used for Component Status) */
+        .status-tile {
             transition: background-color 0.3s;
+            color: white;
+            /* Ensure text is vertically centered for a clean look */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
         }
-        .status-good { background-color: #10b981; } /* Emerald 500 */
-        .status-low { background-color: #f59e0b; } /* Amber 500 */
-        .status-critical { background-color: #ef4444; } /* Red 500 */
-        .status-unknown { background-color: #9ca3af; } /* Gray 400 */
+        .status-tile-low { 
+            background-color: #dc2626; /* Red 600 */
+            animation: pulse-red 1.5s infinite;
+        }
+        .status-tile-ok { 
+            background-color: #059669; /* Emerald 600 */
+        }
+        .status-tile-unknown { 
+            background-color: #4b5563; /* Gray 600 */
+        }
+        
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen p-4 sm:p-8">
+<body class="bg-gray-900 min-h-screen p-4 sm:p-8">
 
     <div id="app" class="max-w-4xl mx-auto">
         <header class="text-center mb-10">
-            <h1 class="text-3xl sm:text-4xl font-extrabold text-gray-800">Press Monitor Dashboard</h1>
-            <p class="text-gray-500 mt-2">Real-time status and remote controls for your reloading press.</p>
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-white">Press Monitor Dashboard</h1>
+            <p class="text-gray-400 mt-2">Real-time status and remote controls for your reloading press.</p>
         </header>
 
         <!-- Connection and Status -->
-        <section class="bg-white p-6 rounded-xl data-card mb-8">
+        <section class="bg-gray-800 p-6 rounded-xl data-card mb-8">
             <div class="flex flex-col sm:flex-row justify-between items-center">
                 <div class="mb-4 sm:mb-0">
-                    <p id="connectionStatus" class="font-semibold text-lg text-red-500">
+                    <p id="connectionStatus" class="font-semibold text-lg text-red-400">
                         Status: Disconnected
                     </p>
-                    <p id="deviceInfo" class="text-sm text-gray-400">
+                    <p id="deviceInfo" class="text-sm text-gray-500">
                         BLE Device: N/A
                     </p>
                 </div>
@@ -50,65 +70,74 @@
             </div>
         </section>
 
-        <!-- Real-Time Data Display -->
+        <!-- Real-Time Data Display (Total Rounds, Powder Level, SYSTEM STATUS) -->
         <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <!-- Round Counter Card -->
-            <div class="bg-white p-6 rounded-xl data-card text-center">
-                <h2 class="text-lg font-semibold text-gray-600 mb-2">Total Rounds</h2>
-                <p id="totalCount" class="text-5xl font-extrabold text-indigo-600">--</p>
-                <p class="text-sm text-gray-400 mt-1">Completed Cycles</p>
+            <div class="bg-gray-800 p-6 rounded-xl data-card text-center">
+                <h2 class="text-lg font-semibold text-gray-400 mb-2">Total Rounds</h2>
+                <p id="totalCount" class="text-5xl font-extrabold text-indigo-400">--</p>
+                <p class="text-sm text-gray-500 mt-1">Completed Cycles</p>
             </div>
 
             <!-- Powder Level Card -->
-            <div class="bg-white p-6 rounded-xl data-card text-center">
-                <h2 class="text-lg font-semibold text-gray-600 mb-2">Powder Level</h2>
-                <p id="powderLevel" class="text-5xl font-extrabold text-green-600">--%</p>
-                <p class="text-sm text-gray-400 mt-1">Hopper Percentage</p>
+            <div class="bg-gray-800 p-6 rounded-xl data-card text-center">
+                <h2 class="text-lg font-semibold text-gray-400 mb-2">Powder Level</h2>
+                <p id="powderLevel" class="text-5xl font-extrabold text-green-400">--%</p>
+                <p class="text-sm text-gray-500 mt-1">Hopper Percentage</p>
             </div>
 
-            <!-- Motor Status Card -->
-            <div class="bg-white p-6 rounded-xl data-card text-center">
-                <h2 class="text-lg font-semibold text-gray-600 mb-2">Motor Status</h2>
-                <p id="motorStatus" class="text-3xl font-bold text-gray-700 mt-3">Idle</p>
-                <div id="motorIndicator" class="status-indicator mx-auto mt-2 status-unknown"></div>
-                <p class="text-sm text-gray-400 mt-1">Operation Mode</p>
+            <!-- 3. System Status Tile (Updated to match other dark gray cards) -->
+            <div id="systemTile" class="bg-gray-800 p-6 rounded-xl data-card text-center">
+                <h2 class="text-lg font-semibold text-gray-400 mb-2">SYSTEM STATUS</h2>
+                <!-- Text color will change dynamically based on status -->
+                <p id="systemStatusText" class="text-5xl font-extrabold text-white">--</p>
+                <p class="text-sm text-gray-500 mt-1">Overall Component Health</p>
             </div>
         </section>
 
-        <!-- Component Status Grid -->
-        <section class="bg-white p-6 rounded-xl data-card mb-10">
-            <h2 class="text-xl font-bold text-gray-700 mb-4">Component Status</h2>
+        <!-- Component Status Grid (Primers, Cases, Bullets, MOTOR STATUS) -->
+        <section class="bg-gray-800 p-6 rounded-xl data-card mb-10">
+            <h2 class="text-xl font-bold text-gray-200 mb-4">Component & Motor Status</h2>
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div class="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
-                    <span class="font-medium text-gray-600">Primers</span>
-                    <div id="primerStatus" class="status-indicator status-unknown"></div>
+                
+                <!-- 1. Primer Status Tile -->
+                <div id="primerTile" class="p-4 rounded-xl text-center status-tile status-tile-unknown">
+                    <span class="font-medium text-lg text-white">Primers</span>
+                    <p id="primerStatusText" class="text-2xl font-bold mt-1 text-white">--</p>
                 </div>
-                <div class="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
-                    <span class="font-medium text-gray-600">Cases</span>
-                    <div id="caseStatus" class="status-indicator status-unknown"></div>
+
+                <!-- 2. Case Status Tile -->
+                <div id="caseTile" class="p-4 rounded-xl text-center status-tile status-tile-unknown">
+                    <span class="font-medium text-lg text-white">Cases</span>
+                    <p id="caseStatusText" class="text-2xl font-bold mt-1 text-white">--</p>
                 </div>
-                <div class="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
-                    <span class="font-medium text-gray-600">Bullets</span>
-                    <div id="bulletStatus" class="status-indicator status-unknown"></div>
+
+                <!-- 3. Bullet Status Tile -->
+                <div id="bulletTile" class="p-4 rounded-xl text-center status-tile status-tile-unknown">
+                    <span class="font-medium text-lg text-white">Bullets</span>
+                    <p id="bulletStatusText" class="text-2xl font-bold mt-1 text-white">--</p>
                 </div>
-                <div class="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
-                    <span class="font-medium text-gray-600">Swage</span>
-                    <div id="swageStatus" class="status-indicator status-good"></div>
+
+                <!-- 4. Motor Status Tile (Updated style and text) -->
+                <div id="motorTile" class="p-4 rounded-xl text-center status-tile status-tile-unknown">
+                    <span class="font-medium text-lg text-white">Motor Status</span>
+                    <p id="motorStatusText" class="text-2xl font-bold mt-1 text-white">--</p>
                 </div>
+
             </div>
         </section>
 
-        <!-- New: Remote Command Center -->
-        <section class="bg-indigo-50 p-6 rounded-xl data-card border border-indigo-200">
-            <h2 class="text-xl font-bold text-indigo-800 mb-4">Remote Command Center</h2>
-            <p class="text-sm text-indigo-700 mb-6">Send commands to the press monitor for calibration and operation control.</p>
+        <!-- Remote Command Center -->
+        <section class="bg-indigo-900/50 p-6 rounded-xl data-card border border-indigo-700">
+            <h2 class="text-xl font-bold text-indigo-300 mb-4">Remote Command Center</h2>
+            <p class="text-sm text-indigo-400 mb-6">Send commands to the press monitor for calibration and operation control.</p>
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <!-- 1. Reset Counter -->
-                <div class="col-span-1 border-r border-indigo-200 lg:pr-4">
-                    <p class="font-semibold text-gray-700 mb-2">Round Count</p>
+                <div class="col-span-1 border-r border-indigo-700 lg:pr-4">
+                    <p class="font-semibold text-gray-300 mb-2">Round Count</p>
                     <button onclick="sendCommand('CMD=RESET_COUNT')" id="resetCountBtn"
-                        class="w-full px-4 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition duration-150 shadow-md disabled:bg-red-300"
+                        class="w-full px-4 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition duration-150 shadow-md disabled:bg-red-900/50"
                         disabled>
                         Reset Counter
                     </button>
@@ -116,10 +145,10 @@
                 </div>
 
                 <!-- 2. Calibrate High -->
-                <div class="col-span-1 border-r border-indigo-200 lg:pr-4 lg:pl-4">
-                    <p class="font-semibold text-gray-700 mb-2">Powder Calibration (Full)</p>
+                <div class="col-span-1 border-r border-indigo-700 lg:pr-4 lg:pl-4">
+                    <p class="font-semibold text-gray-300 mb-2">Powder Calibration (Full)</p>
                     <button onclick="sendCommand('CMD=CAL_HIGH')" id="calHighBtn"
-                        class="w-full px-4 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition duration-150 shadow-md disabled:bg-blue-300"
+                        class="w-full px-4 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition duration-150 shadow-md disabled:bg-blue-900/50"
                         disabled>
                         Calibrate Full (Hopper Max)
                     </button>
@@ -128,9 +157,9 @@
 
                 <!-- 3. Calibrate Low -->
                 <div class="col-span-1 lg:pl-4">
-                    <p class="font-semibold text-gray-700 mb-2">Powder Calibration (Empty)</p>
+                    <p class="font-semibold text-gray-300 mb-2">Powder Calibration (Empty)</p>
                     <button onclick="sendCommand('CMD=CAL_LOW')" id="calLowBtn"
-                        class="w-full px-4 py-3 bg-yellow-600 text-white font-bold rounded-lg hover:bg-yellow-700 transition duration-150 shadow-md disabled:bg-yellow-300"
+                        class="w-full px-4 py-3 bg-yellow-600 text-white font-bold rounded-lg hover:bg-yellow-700 transition duration-150 shadow-md disabled:bg-yellow-900/50"
                         disabled>
                         Calibrate Low (Hopper Min)
                     </button>
@@ -138,7 +167,7 @@
                 </div>
             </div>
             
-            <p id="commandFeedback" class="text-center mt-4 text-sm font-medium text-green-700 hidden">Command Sent Successfully!</p>
+            <p id="commandFeedback" class="text-center mt-4 text-sm font-medium text-green-400 hidden">Command Sent Successfully!</p>
         </section>
 
     </div>
@@ -160,11 +189,24 @@
             connectButton: document.getElementById('connectButton'),
             totalCount: document.getElementById('totalCount'),
             powderLevel: document.getElementById('powderLevel'),
-            motorStatus: document.getElementById('motorStatus'),
-            motorIndicator: document.getElementById('motorIndicator'),
-            primerStatus: document.getElementById('primerStatus'),
-            caseStatus: document.getElementById('caseStatus'),
-            bulletStatus: document.getElementById('bulletStatus'),
+            
+            // System Status Card (Top Row)
+            systemTile: document.getElementById('systemTile'), 
+            systemStatusText: document.getElementById('systemStatusText'),
+            
+            // Motor Status Card (Component Grid)
+            motorTile: document.getElementById('motorTile'), 
+            motorStatusText: document.getElementById('motorStatusText'), 
+
+            // Component Status Tiles
+            primerTile: document.getElementById('primerTile'),
+            primerStatusText: document.getElementById('primerStatusText'),
+            caseTile: document.getElementById('caseTile'),
+            caseStatusText: document.getElementById('caseStatusText'),
+            bulletTile: document.getElementById('bulletTile'),
+            bulletStatusText: document.getElementById('bulletStatusText'),
+            
+            // Command Buttons
             commandFeedback: document.getElementById('commandFeedback'),
             resetCountBtn: document.getElementById('resetCountBtn'),
             calHighBtn: document.getElementById('calHighBtn'),
@@ -176,14 +218,14 @@
         // =====================================================================
 
         /**
-         * Converts the status value (0 or 1) into CSS classes for the indicator.
-         * @param {number} value - 1 for OK/Full, 0 for Low/Missing.
-         * @returns {string} - Tailwind CSS class string.
+         * Returns status text and tile classes based on the component value (1=OK, 0=LOW/CRITICAL).
+         * @param {number} value - 1 for OK/Full, 0 for Low/Missing, -1 for Unknown.
+         * @returns {{text: string, class: string}} - Status object.
          */
-        function getStatusClasses(value) {
-            if (value === 1) return 'status-good';
-            if (value === 0) return 'status-critical';
-            return 'status-unknown';
+        function getStatusDisplay(value) {
+            if (value === 1) return { text: 'OK', class: 'status-tile-ok' };
+            if (value === 0) return { text: 'LOW!', class: 'status-tile-low' };
+            return { text: '--', class: 'status-tile-unknown' };
         }
 
         /**
@@ -197,30 +239,82 @@
             // Update Powder Level
             elements.powderLevel.textContent = data.Powder !== undefined ? `${data.Powder}%` : '--%';
             if (data.Powder < 5) {
-                elements.powderLevel.className = 'text-5xl font-extrabold text-red-600';
+                elements.powderLevel.className = 'text-5xl font-extrabold text-red-400';
             } else if (data.Powder < 20) {
-                elements.powderLevel.className = 'text-5xl font-extrabold text-yellow-600';
+                elements.powderLevel.className = 'text-5xl font-extrabold text-yellow-400';
             } else {
-                elements.powderLevel.className = 'text-5xl font-extrabold text-green-600';
+                elements.powderLevel.className = 'text-5xl font-extrabold text-green-400';
             }
 
-            // Update Component Status Indicators
-            elements.primerStatus.className = `status-indicator ${getStatusClasses(data.Pri)}`;
-            elements.caseStatus.className = `status-indicator ${getStatusClasses(data.Cas)}`;
-            elements.bulletStatus.className = `status-indicator ${getStatusClasses(data.Bul)}`;
+            // --- Component Status Tiles ---
+            
+            // Primer
+            const primerDisplay = getStatusDisplay(data.Pri);
+            elements.primerTile.className = `p-4 rounded-xl text-center status-tile ${primerDisplay.class}`;
+            elements.primerStatusText.textContent = primerDisplay.text;
 
-            // Update Motor Status
-            let motorText = 'Idle';
-            let motorClass = 'status-unknown';
+            // Case
+            const caseDisplay = getStatusDisplay(data.Cas);
+            elements.caseTile.className = `p-4 rounded-xl text-center status-tile ${caseDisplay.class}`;
+            elements.caseStatusText.textContent = caseDisplay.text;
+
+            // Bullet
+            const bulletDisplay = getStatusDisplay(data.Bul);
+            elements.bulletTile.className = `p-4 rounded-xl text-center status-tile ${bulletDisplay.class}`;
+            elements.bulletStatusText.textContent = bulletDisplay.text;
+            
+            // --- System Status Tile (Background is now static bg-gray-800) ---
+            let systemStatusValue = -1; // -1: Unknown, 0: Critical/Low, 1: OK
+            let systemTextColorClass = 'text-white';
+            let systemStatusTextContent = '--';
+
+            // Check if all component data is present and OK (1)
+            if (data.Pri === 1 && data.Cas === 1 && data.Bul === 1) {
+                systemStatusValue = 1; // All OK
+            } 
+            // Check if any component is Critical/Low (0)
+            else if (data.Pri === 0 || data.Cas === 0 || data.Bul === 0) {
+                systemStatusValue = 0; // Low/Critical
+            }
+
+            // Determine Text Color and Content for the System Status
+            if (systemStatusValue === 1) {
+                systemStatusTextContent = 'OK';
+                systemTextColorClass = 'text-green-400';
+            } else if (systemStatusValue === 0) {
+                systemStatusTextContent = 'CRITICAL';
+                systemTextColorClass = 'text-red-400';
+            } else {
+                systemStatusTextContent = '--';
+                systemTextColorClass = 'text-white';
+            }
+
+            // Apply text and color class to the inner <p> element
+            elements.systemStatusText.textContent = systemStatusTextContent;
+            elements.systemStatusText.className = `text-5xl font-extrabold ${systemTextColorClass}`;
+            
+            // --- Motor Status Card (Now matches component tile styling) ---
+            let motorText = '--';
+            let motorClassName = 'status-tile-unknown';
+            
             if (data.Mot === 1) {
-                motorText = 'Running (FWD)';
-                motorClass = 'status-good';
+                // Motor Running FWD (Good/Active state)
+                motorText = 'RUNNING (FWD)';
+                motorClassName = 'status-tile-ok';
             } else if (data.Mot === 2) {
-                motorText = 'Running (REV)';
-                motorClass = 'status-low';
+                // Motor Running REV (Warning/Attention state)
+                motorText = 'RUNNING (REV)';
+                motorClassName = 'status-tile-low';
+            } else if (data.Mot === 0) {
+                // Motor Idle/Stopped (Default/Neutral state)
+                motorText = 'IDLE';
+                motorClassName = 'status-tile-unknown';
             }
-            elements.motorStatus.textContent = motorText;
-            elements.motorIndicator.className = `status-indicator mx-auto mt-2 ${motorClass}`;
+
+            // Apply dynamic background class to the motor tile
+            elements.motorTile.className = `p-4 rounded-xl text-center status-tile ${motorClassName}`;
+            // Apply status text
+            elements.motorStatusText.textContent = motorText;
         }
 
         /**
@@ -289,7 +383,7 @@
          */
         function showMessage(message, type) {
             elements.commandFeedback.textContent = message;
-            elements.commandFeedback.className = `text-center mt-4 text-sm font-medium ${type === 'success' ? 'text-green-700' : 'text-red-700'}`;
+            elements.commandFeedback.className = `text-center mt-4 text-sm font-medium ${type === 'success' ? 'text-green-400' : 'text-red-400'}`;
             elements.commandFeedback.classList.remove('hidden');
 
             // Hide the message after 3 seconds
@@ -308,8 +402,8 @@
         async function connectBLE() {
             try {
                 elements.status.textContent = "Status: Scanning...";
-                elements.status.classList.remove('text-red-500', 'text-green-500');
-                elements.status.classList.add('text-yellow-600');
+                elements.status.classList.remove('text-red-400', 'text-green-400');
+                elements.status.classList.add('text-yellow-400');
                 setCommandButtonsEnabled(false);
                 
                 // Request the device
@@ -338,8 +432,8 @@
                 dataCharacteristic.addEventListener('characteristicvaluechanged', handleCharacteristicUpdates);
 
                 elements.status.textContent = "Status: Connected!";
-                elements.status.classList.remove('text-yellow-600');
-                elements.status.classList.add('text-green-500');
+                elements.status.classList.remove('text-yellow-400');
+                elements.status.classList.add('text-green-400');
                 elements.connectButton.textContent = "Disconnect";
                 elements.connectButton.onclick = disconnectBLE;
                 setCommandButtonsEnabled(true);
@@ -349,8 +443,8 @@
             } catch (error) {
                 console.error("BLE Connection Error:", error);
                 elements.status.textContent = `Status: Connection Failed (${error.name})`;
-                elements.status.classList.remove('text-yellow-600');
-                elements.status.classList.add('text-red-500');
+                elements.status.classList.remove('text-yellow-400');
+                elements.status.classList.add('text-red-400');
                 elements.deviceInfo.textContent = 'BLE Device: N/A';
                 elements.connectButton.textContent = "Connect to Press";
                 elements.connectButton.onclick = connectBLE;
@@ -392,27 +486,40 @@
         function onDisconnected(event) {
             console.log('Device disconnected:', event.target.name);
             elements.status.textContent = "Status: Disconnected";
-            elements.status.classList.remove('text-green-500', 'text-yellow-600');
-            elements.status.classList.add('text-red-500');
+            elements.status.classList.remove('text-green-400', 'text-yellow-400');
+            elements.status.classList.add('text-red-400');
             elements.connectButton.textContent = "Connect to Press";
             elements.connectButton.onclick = connectBLE;
             elements.deviceInfo.textContent = 'BLE Device: N/A';
             setCommandButtonsEnabled(false);
+            
             // Reset UI data to default
             elements.totalCount.textContent = '--';
             elements.powderLevel.textContent = '--%';
-            elements.motorStatus.textContent = 'Idle';
-            elements.motorIndicator.className = 'status-indicator mx-auto mt-2 status-unknown';
-            elements.primerStatus.className = 'status-indicator status-unknown';
-            elements.caseStatus.className = 'status-indicator status-unknown';
-            elements.bulletStatus.className = 'status-indicator status-unknown';
+            
+            // Reset System Status card - only text color changes now
+            elements.systemStatusText.textContent = '--';
+            elements.systemStatusText.className = 'text-5xl font-extrabold text-white';
+
+            // Reset Motor status tile
+            elements.motorTile.className = 'p-4 rounded-xl text-center status-tile status-tile-unknown';
+            elements.motorStatusText.textContent = '--';
+            
+            // Reset component tiles
+            elements.primerTile.className = 'p-4 rounded-xl text-center status-tile status-tile-unknown';
+            elements.primerStatusText.textContent = '--';
+            elements.caseTile.className = 'p-4 rounded-xl text-center status-tile status-tile-unknown';
+            elements.caseStatusText.textContent = '--';
+            elements.bulletTile.className = 'p-4 rounded-xl text-center status-tile status-tile-unknown';
+            elements.bulletStatusText.textContent = '--';
         }
 
         // Initialize on load
         window.onload = function() {
             if (!('bluetooth' in navigator)) {
-                alert("Web Bluetooth API is not supported in this browser. Please use Chrome, Edge, or a compatible browser.");
+                console.error("Web Bluetooth API is not supported in this browser. Please use Chrome, Edge, or a compatible browser.");
                 elements.connectButton.disabled = true;
+                elements.connectButton.textContent = "BLE Not Supported";
             }
         };
 
