@@ -1,607 +1,519 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Reloading Press Monitor</title>
+
+    <!-- Tailwind -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
+
     <style>
-        body { 
-            font-family: 'Inter', sans-serif; 
-            color: #e5e7eb; /* Light gray text */
-        }
-        .data-card {
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        
-        /* Flashing Effect for Critical Alerts */
-        @keyframes pulse-red {
-            0%, 100% { background-color: #991b1b; } /* Red 800 */
-            50% { background-color: #ef4444; } /* Red 500 */
-        }
-        
-        /* Status Tiles (Used for Component Status) */
-        .status-tile {
-            transition: background-color 0.3s;
-            color: white;
-            /* Ensure text is vertically centered for a clean look */
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-        }
-        .status-tile-low { 
-            background-color: #dc2626; /* Red 600 */
-            animation: pulse-red 1.5s infinite;
-        }
-        .status-tile-ok { 
-            background-color: #059669; /* Emerald 600 */
-        }
-        .status-tile-unknown { 
-            background-color: #4b5563; /* Gray 600 */
-        }
-        
+        body { font-family: 'Inter', sans-serif; color: #e5e7eb; background: #0f172a; }
+        .data-card { box-shadow: 0 10px 15px -3px rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.03); }
+        .status-tile { display:flex; flex-direction:column; justify-content:center; align-items:center; color:white; min-height:80px; border-radius:12px; }
+        .status-tile-ok { background:#059669; }
+        .status-tile-low { background:#dc2626; animation:pulse-red 1.5s infinite; }
+        .status-tile-unknown { background:#374151; }
+        @keyframes pulse-red { 0%,100%{background:#991b1b;}50%{background:#ef4444;} }
+        .tab { display:block; }
+        .tab.hidden { display:none; }
+        .tab-btn.active { border-color: #7c3aed; color:white; }
+        .small-muted { color:#9ca3af; font-size:0.85rem; }
+        #commandFeedback { transition: opacity 200ms; }
     </style>
 </head>
-<body class="bg-gray-900 min-h-screen p-4 sm:p-8">
+<body class="min-h-screen p-6">
 
-    <div id="app" class="max-w-4xl mx-auto">
-        <header class="text-center mb-10">
-            <h1 class="text-3xl sm:text-4xl font-extrabold text-white">Press Monitor Dashboard</h1>
-            <p class="text-gray-400 mt-2">Real-time status and remote controls for your reloading press.</p>
-        </header>
+<!-- NOTE: firmware reference: /mnt/data/main.cpp (uploaded by user) -->
 
-        <!-- Connection and Status -->
-        <section class="bg-gray-800 p-6 rounded-xl data-card mb-8">
-            <div class="flex flex-col sm:flex-row justify-between items-center">
-                <div class="mb-4 sm:mb-0">
-                    <p id="connectionStatus" class="font-semibold text-lg text-red-400">
-                        Status: Disconnected
-                    </p>
-                    <p id="deviceInfo" class="text-sm text-gray-500">
-                        BLE Device: N/A
-                    </p>
-                </div>
-                <button onclick="connectBLE()" id="connectButton"
-                    class="w-full sm:w-auto px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-150 shadow-md">
-                    Connect to Press
-                </button>
+<div class="max-w-5xl mx-auto">
+    <header class="text-center mb-8">
+        <h1 class="text-3xl sm:text-4xl font-extrabold">Press Monitor Dashboard</h1>
+        <p class="small-muted mt-1">Real-time status, settings, and motor control (Web Bluetooth)</p>
+    </header>
+
+    <!-- Connection Card -->
+    <section class="bg-gray-800 p-6 rounded-xl data-card mb-8">
+        <div class="flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div>
+                <p id="connectionStatus" class="text-red-400 font-semibold">Status: Disconnected</p>
+                <p id="deviceInfo" class="small-muted">BLE Device: N/A</p>
             </div>
-        </section>
+            <div class="flex gap-3">
+                <button id="connectButton" class="px-5 py-2 bg-indigo-600 rounded-lg font-bold hover:bg-indigo-700" onclick="connectBLE()">Connect to Press</button>
+                <button id="disconnectButton" class="px-4 py-2 bg-gray-700 rounded-lg hidden" onclick="disconnectBLE()">Disconnect</button>
+            </div>
+        </div>
+    </section>
 
-        <!-- Real-Time Data Display (Total Rounds, Powder Level, SYSTEM STATUS) -->
-        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <!-- Round Counter Card -->
-            <div class="bg-gray-800 p-6 rounded-xl data-card text-center">
-                <h2 class="text-lg font-semibold text-gray-400 mb-2">Total Rounds</h2>
-                <p id="totalCount" class="text-5xl font-extrabold text-indigo-400">--</p>
-                <p class="text-sm text-gray-500 mt-1">Completed Cycles</p>
+    <!-- Top Status Grid -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="bg-gray-800 p-6 rounded-xl data-card text-center">
+            <h2 class="text-sm text-gray-400">Total Rounds</h2>
+            <p id="totalCount" class="text-4xl font-extrabold text-indigo-400">--</p>
+            <p class="small-muted mt-1">Completed cycles</p>
+        </div>
+
+        <div class="bg-gray-800 p-6 rounded-xl data-card text-center">
+            <h2 class="text-sm text-gray-400">Powder Level</h2>
+            <p id="powderLevel" class="text-4xl font-extrabold text-green-400">--%</p>
+            <p class="small-muted mt-1">Hopper %</p>
+        </div>
+
+        <div class="bg-gray-800 p-6 rounded-xl data-card text-center">
+            <h2 class="text-sm text-gray-400">System Status</h2>
+            <p id="systemStatusText" class="text-4xl font-extrabold text-white">--</p>
+            <p class="small-muted mt-1">Overall system health</p>
+        </div>
+    </section>
+
+    <!-- Component & Motor -->
+    <section class="bg-gray-800 p-6 rounded-xl data-card mb-8">
+        <h3 class="font-bold mb-4">Component & Motor Status</h3>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div id="primerTile" class="status-tile status-tile-unknown p-4"><div class="font-medium">Primers</div><div id="primerStatusText" class="text-2xl font-bold mt-2">--</div></div>
+            <div id="caseTile" class="status-tile status-tile-unknown p-4"><div class="font-medium">Cases</div><div id="caseStatusText" class="text-2xl font-bold mt-2">--</div></div>
+            <div id="bulletTile" class="status-tile status-tile-unknown p-4"><div class="font-medium">Bullets</div><div id="bulletStatusText" class="text-2xl font-bold mt-2">--</div></div>
+            <div id="motorTile" class="status-tile status-tile-unknown p-4"><div class="font-medium">Motor</div><div id="motorStatusText" class="text-2xl font-bold mt-2">--</div></div>
+        </div>
+    </section>
+
+    <!-- Tabbed Control Center -->
+    <section class="bg-gray-800 p-6 rounded-xl data-card mb-8">
+        <div class="flex items-center justify-between">
+            <h3 class="font-bold">Control Center</h3>
+            <p id="commandFeedback" class="small-muted" style="opacity:0">Ready</p>
+        </div>
+
+        <div class="mt-4">
+            <div class="flex border-b border-gray-700">
+                <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="commands">Commands</button>
+                <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="settings">Settings</button>
+                <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="motor">Motor Control</button>
             </div>
 
-            <!-- Powder Level Card -->
-            <div class="bg-gray-800 p-6 rounded-xl data-card text-center">
-                <h2 class="text-lg font-semibold text-gray-400 mb-2">Powder Level</h2>
-                <p id="powderLevel" class="text-5xl font-extrabold text-green-400">--%</p>
-                <p class="text-sm text-gray-500 mt-1">Hopper Percentage</p>
+            <!-- Commands Tab -->
+            <div id="tab-commands" class="tab hidden mt-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <button id="resetCountBtn" class="px-4 py-3 bg-red-600 rounded-lg font-bold hover:bg-red-700" onclick="sendCommand('CMD=RESET_COUNT')" disabled>Reset Counter</button>
+                    <button id="calHighBtn" class="px-4 py-3 bg-blue-600 rounded-lg font-bold hover:bg-blue-700" onclick="sendCommand('CMD=CAL_HIGH')" disabled>Calibrate Full (Hopper Max)</button>
+                    <button id="calLowBtn" class="px-4 py-3 bg-yellow-600 rounded-lg font-bold hover:bg-yellow-700" onclick="sendCommand('CMD=CAL_LOW')" disabled>Calibrate Empty (Hopper Min)</button>
+                </div>
+                <p class="small-muted mt-3">Calibration commands save values to ESP32 NVS.</p>
             </div>
 
-            <!-- 3. System Status Tile -->
-            <div id="systemTile" class="bg-gray-800 p-6 rounded-xl data-card text-center">
-                <h2 class="text-lg font-semibold text-gray-400 mb-2">SYSTEM STATUS</h2>
-                <!-- Text color will change dynamically based on status -->
-                <p id="systemStatusText" class="text-5xl font-extrabold text-white">--</p>
-                <p class="text-sm text-gray-500 mt-1">Overall Component Health</p>
-            </div>
-        </section>
+            <!-- Settings Tab -->
+            <div id="tab-settings" class="tab hidden mt-6">
+                <div class="space-y-4 max-w-2xl">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <div class="font-semibold">Mute Alerts</div>
+                            <div class="small-muted">When on, no alert tones will play</div>
+                        </div>
+                        <input id="muteToggle" type="checkbox" class="w-6 h-6" onchange="updateSetting('MUTE', this.checked ? 1 : 0)">
+                    </div>
 
-        <!-- Component Status Grid (Primers, Cases, Bullets, MOTOR STATUS) -->
-        <section class="bg-gray-800 p-6 rounded-xl data-card mb-10">
-            <h2 class="text-xl font-bold text-gray-200 mb-4">Component & Motor Status</h2>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                
-                <!-- 1. Primer Status Tile -->
-                <div id="primerTile" class="p-4 rounded-xl text-center status-tile status-tile-unknown">
-                    <span class="font-medium text-lg text-white">Primers</span>
-                    <p id="primerStatusText" class="text-2xl font-bold mt-1 text-white">--</p>
-                </div>
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <div class="font-semibold">Dwell Beep Active</div>
+                            <div class="small-muted">Plays dwell beep on each counted cycle</div>
+                        </div>
+                        <input id="dwellActiveToggle" type="checkbox" class="w-6 h-6" onchange="updateSetting('DWELL_ACTIVE', this.checked ? 1 : 0)">
+                    </div>
 
-                <!-- 2. Case Status Tile -->
-                <div id="caseTile" class="p-4 rounded-xl text-center status-tile status-tile-unknown">
-                    <span class="font-medium text-lg text-white">Cases</span>
-                    <p id="caseStatusText" class="text-2xl font-bold mt-1 text-white">--</p>
-                </div>
+                    <div>
+                        <label class="font-semibold">Dwell Duration (ms)</label>
+                        <input id="dwellDuration" type="range" min="50" max="5000" step="50" class="w-full mt-2" oninput="document.getElementById('dwellDurationValue').textContent = this.value" onchange="updateSetting('DWELL_DUR', this.value)">
+                        <div id="dwellDurationValue" class="small-muted mt-1">--</div>
+                    </div>
 
-                <!-- 3. Bullet Status Tile -->
-                <div id="bulletTile" class="p-4 rounded-xl text-center status-tile status-tile-unknown">
-                    <span class="font-medium text-lg text-white">Bullets</span>
-                    <p id="bulletStatusText" class="text-2xl font-bold mt-1 text-white">--</p>
-                </div>
-
-                <!-- 4. Motor Status Tile -->
-                <div id="motorTile" class="p-4 rounded-xl text-center status-tile status-tile-unknown">
-                    <span class="font-medium text-lg text-white">Motor Status</span>
-                    <p id="motorStatusText" class="text-2xl font-bold mt-1 text-white">--</p>
-                </div>
-
-            </div>
-        </section>
-
-        <!-- Remote Command Center -->
-        <section class="bg-indigo-900/50 p-6 rounded-xl data-card border border-indigo-700">
-            <h2 class="text-xl font-bold text-indigo-300 mb-4">Remote Command Center</h2>
-            <p class="text-sm text-indigo-400 mb-6">Send commands to the press monitor for calibration and operation control.</p>
-
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <!-- 1. Reset Counter -->
-                <div class="col-span-1 border-r border-indigo-700 lg:pr-4">
-                    <p class="font-semibold text-gray-300 mb-2">Round Count</p>
-                    <button onclick="sendCommand('CMD=RESET_COUNT')" id="resetCountBtn"
-                        class="w-full px-4 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition duration-150 shadow-md disabled:bg-red-900/50"
-                        disabled>
-                        Reset Counter
-                    </button>
-                    <p class="text-xs text-gray-500 mt-2">Sets the total rounds to zero on the ESP32.</p>
-                </div>
-
-                <!-- 2. Calibrate High -->
-                <div class="col-span-1 border-r border-indigo-700 lg:pr-4 lg:pl-4">
-                    <p class="font-semibold text-gray-300 mb-2">Powder Calibration (Full)</p>
-                    <button onclick="sendCommand('CMD=CAL_HIGH')" id="calHighBtn"
-                        class="w-full px-4 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition duration-150 shadow-md disabled:bg-blue-900/50"
-                        disabled>
-                        Calibrate Full (Hopper Max)
-                    </button>
-                    <p class="text-xs text-gray-500 mt-2">Sets the "Full" distance reading (NVS saved).</p>
-                </div>
-
-                <!-- 3. Calibrate Low -->
-                <div class="col-span-1 lg:pl-4">
-                    <p class="font-semibold text-gray-300 mb-2">Powder Calibration (Empty)</p>
-                    <button onclick="sendCommand('CMD=CAL_LOW')" id="calLowBtn"
-                        class="w-full px-4 py-3 bg-yellow-600 text-white font-bold rounded-lg hover:bg-yellow-700 transition duration-150 shadow-md disabled:bg-yellow-900/50"
-                        disabled>
-                        Calibrate Low (Hopper Min)
-                    </button>
-                    <p class="text-xs text-gray-500 mt-2">Defines the total empty range (NVS saved).</p>
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <div class="font-semibold">Motor Control Enabled</div>
+                            <div class="small-muted">Allow the web dashboard + firmware to run the motor</div>
+                        </div>
+                        <input id="motorEnToggle" type="checkbox" class="w-6 h-6" onchange="updateSetting('MOTOR_EN', this.checked ? 1 : 0)">
+                    </div>
                 </div>
             </div>
-            
-            <p id="commandFeedback" class="text-center mt-4 text-sm font-medium text-green-400 hidden">Command Sent Successfully!</p>
-        </section>
 
-    </div>
+            <!-- Motor Tab -->
+            <div id="tab-motor" class="tab hidden mt-6">
+                <p class="small-muted">Motor state reported from firmware. Latching or jog state is controlled on the device.</p>
+                <div id="motorDisplay" class="text-center text-2xl font-bold mt-4">--</div>
+            </div>
 
-    <script>
-        // BLE Variables
-        const SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-        const COMMAND_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
-        const DATA_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+        </div>
+    </section>
+</div>
 
-        let bleDevice = null;
-        let dataCharacteristic = null;
-        let commandCharacteristic = null;
+<script>
+/* =========================
+   BLE UUIDs (match firmware)
+   ========================= */
+const SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const COMMAND_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const DATA_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
-        // UI Element References
-        const elements = {
-            status: document.getElementById('connectionStatus'),
-            deviceInfo: document.getElementById('deviceInfo'),
-            connectButton: document.getElementById('connectButton'),
-            totalCount: document.getElementById('totalCount'),
-            powderLevel: document.getElementById('powderLevel'),
-            
-            // System Status Card (Top Row)
-            systemTile: document.getElementById('systemTile'), 
-            systemStatusText: document.getElementById('systemStatusText'),
-            
-            // Motor Status Card (Component Grid)
-            motorTile: document.getElementById('motorTile'), 
-            motorStatusText: document.getElementById('motorStatusText'), 
+/* ================
+   BLE Globals
+   ================ */
+let bleDevice = null;
+let gattServer = null;
+let commandCharacteristic = null;
+let dataCharacteristic = null;
 
-            // Component Status Tiles
-            primerTile: document.getElementById('primerTile'),
-            primerStatusText: document.getElementById('primerStatusText'),
-            caseTile: document.getElementById('caseTile'),
-            caseStatusText: document.getElementById('caseStatusText'),
-            bulletTile: document.getElementById('bulletTile'),
-            bulletStatusText: document.getElementById('bulletStatusText'),
-            
-            // Command Buttons
-            commandFeedback: document.getElementById('commandFeedback'),
-            resetCountBtn: document.getElementById('resetCountBtn'),
-            calHighBtn: document.getElementById('calHighBtn'),
-            calLowBtn: document.getElementById('calLowBtn'),
-        };
+/* UI refs */
+const ui = {
+    connectionStatus: document.getElementById('connectionStatus'),
+    deviceInfo: document.getElementById('deviceInfo'),
+    connectButton: document.getElementById('connectButton'),
+    disconnectButton: document.getElementById('disconnectButton'),
 
-        // =====================================================================
-        // UTILITY FUNCTIONS
-        // =====================================================================
+    totalCount: document.getElementById('totalCount'),
+    powderLevel: document.getElementById('powderLevel'),
+    systemStatusText: document.getElementById('systemStatusText'),
 
-        /**
-         * Returns status text and tile classes based on the component value (1=OK, 0=LOW/CRITICAL).
-         * @param {number} value - 1 for OK/Full, 0 for Low/Missing, -1 for Unknown.
-         * @returns {{text: string, class: string}} - Status object.
-         */
-        function getStatusDisplay(value) {
-            if (value === 1) return { text: 'OK', class: 'status-tile-ok' };
-            if (value === 0) return { text: 'LOW!', class: 'status-tile-low' };
-            return { text: '--', class: 'status-tile-unknown' };
+    primerTile: document.getElementById('primerTile'),
+    primerStatusText: document.getElementById('primerStatusText'),
+    caseTile: document.getElementById('caseTile'),
+    caseStatusText: document.getElementById('caseStatusText'),
+    bulletTile: document.getElementById('bulletTile'),
+    bulletStatusText: document.getElementById('bulletStatusText'),
+    motorTile: document.getElementById('motorTile'),
+    motorStatusText: document.getElementById('motorStatusText'),
+
+    // Tab controls
+    commandFeedback: document.getElementById('commandFeedback'),
+    resetCountBtn: document.getElementById('resetCountBtn'),
+    calHighBtn: document.getElementById('calHighBtn'),
+    calLowBtn: document.getElementById('calLowBtn'),
+
+    // Settings controls
+    muteToggle: document.getElementById('muteToggle'),
+    dwellActiveToggle: document.getElementById('dwellActiveToggle'),
+    dwellDuration: document.getElementById('dwellDuration'),
+    dwellDurationValue: document.getElementById('dwellDurationValue'),
+    motorEnToggle: document.getElementById('motorEnToggle'),
+
+    // Motor display
+    motorDisplay: document.getElementById('motorDisplay'),
+};
+
+/* Helper: parse incoming BLE data string into object
+   Expected format produced by firmware:
+   "Pri=%d,Cas=%d,Bul=%d,Cnt=%d,Powder=%d,Mot=%d,Mute=%d,DwellDur=%d,DwellAct=%d,MotorEn=%d"
+*/
+function parseData(valueString) {
+    const obj = {};
+    try {
+        valueString.split(',').forEach(pair => {
+            const [k, v] = pair.split('=');
+            if (!k) return;
+            // parseInt safe fallback
+            const n = parseInt((v||'').trim(), 10);
+            obj[k.trim()] = Number.isNaN(n) ? (v||'').trim() : n;
+        });
+    } catch (e) {
+        console.error("parseData error:", e);
+    }
+    return obj;
+}
+
+/* Update UI based on parsed data */
+function updateUI(data) {
+    // Rounds
+    if (data.Cnt !== undefined) ui.totalCount.textContent = data.Cnt;
+    else ui.totalCount.textContent = '--';
+
+    // Powder percentage
+    if (data.Powder !== undefined) {
+        ui.powderLevel.textContent = `${data.Powder}%`;
+        if (data.Powder <= 5) {
+            ui.powderLevel.className = 'text-4xl font-extrabold text-red-400';
+        } else if (data.Powder < 20) {
+            ui.powderLevel.className = 'text-4xl font-extrabold text-yellow-400';
+        } else {
+            ui.powderLevel.className = 'text-4xl font-extrabold text-green-400';
+        }
+    } else {
+        ui.powderLevel.textContent = '--%';
+        ui.powderLevel.className = 'text-4xl font-extrabold text-white';
+    }
+
+    // Components (1 = OK, 0 = LOW)
+    function applyStatus(tileEl, textEl, val) {
+        const displayVal = (val === 1) ? 'OK' : (val === 0 ? 'LOW!' : '--');
+        const cls = (val === 1) ? 'status-tile status-tile-ok p-4 rounded-xl' : (val === 0 ? 'status-tile status-tile-low p-4 rounded-xl' : 'status-tile status-tile-unknown p-4 rounded-xl');
+        tileEl.className = cls;
+        textEl.textContent = displayVal;
+    }
+    applyStatus(ui.primerTile, ui.primerStatusText, data.Pri);
+    applyStatus(ui.caseTile, ui.caseStatusText, data.Cas);
+    applyStatus(ui.bulletTile, ui.bulletStatusText, data.Bul);
+
+    // System status: simple logic (critical if any component low OR powder <= 5)
+    let systemText = '--', systemClass = 'text-white';
+    const powderCritical = (data.Powder !== undefined && data.Powder <= 5);
+    const componentCritical = (data.Pri === 0 || data.Cas === 0 || data.Bul === 0);
+    if (!componentCritical && !powderCritical && data.Pri !== undefined) {
+        systemText = 'OK';
+        systemClass = 'text-green-400';
+    } else if (componentCritical || powderCritical) {
+        systemText = 'CRITICAL';
+        systemClass = 'text-red-400';
+    } else {
+        systemText = '--';
+        systemClass = 'text-white';
+    }
+    ui.systemStatusText.textContent = systemText;
+    ui.systemStatusText.className = `text-4xl font-extrabold ${systemClass}`;
+
+    // Motor (Mot: 0 stop, 1 FWD, 2 REV)
+    if (data.Mot !== undefined) {
+        if (data.Mot === 1) {
+            ui.motorStatusText.textContent = 'RUNNING (FWD)';
+            ui.motorTile.className = 'status-tile status-tile-ok p-4 rounded-xl';
+            ui.motorDisplay.textContent = 'RUNNING →';
+        } else if (data.Mot === 2) {
+            ui.motorStatusText.textContent = 'RUNNING (REV)';
+            ui.motorTile.className = 'status-tile status-tile-low p-4 rounded-xl';
+            ui.motorDisplay.textContent = 'RUNNING ←';
+        } else {
+            ui.motorStatusText.textContent = 'IDLE';
+            ui.motorTile.className = 'status-tile status-tile-unknown p-4 rounded-xl';
+            ui.motorDisplay.textContent = 'IDLE';
+        }
+    } else {
+        ui.motorStatusText.textContent = '--';
+        ui.motorTile.className = 'status-tile status-tile-unknown p-4 rounded-xl';
+        ui.motorDisplay.textContent = '--';
+    }
+
+    // Settings reflected from firmware:
+    if (data.Mute !== undefined) {
+        ui.muteToggle.checked = !!data.Mute;
+    }
+    if (data.DwellDur !== undefined) {
+        ui.dwellDuration.value = Number(data.DwellDur);
+        ui.dwellDurationValue.textContent = data.DwellDur;
+    }
+    if (data.DwellAct !== undefined) {
+        ui.dwellActiveToggle.checked = !!data.DwellAct;
+    }
+    if (data.MotorEn !== undefined) {
+        ui.motorEnToggle.checked = !!data.MotorEn;
+    }
+}
+
+/* Show feedback message temporarily */
+let feedbackTimer = null;
+function showMessage(msg, type='info') {
+    ui.commandFeedback.textContent = msg;
+    ui.commandFeedback.style.opacity = 1;
+    ui.commandFeedback.className = (type === 'error') ? 'text-red-400 small-muted' : 'text-green-400 small-muted';
+    if (feedbackTimer) clearTimeout(feedbackTimer);
+    feedbackTimer = setTimeout(()=> {
+        ui.commandFeedback.style.opacity = 0;
+    }, 2500);
+}
+
+/* Enable/disable command buttons when not connected */
+function setCommandButtonsEnabled(enabled) {
+    ui.resetCountBtn.disabled = !enabled;
+    ui.calHighBtn.disabled   = !enabled;
+    ui.calLowBtn.disabled    = !enabled;
+    ui.resetCountBtn.classList.toggle('opacity-50', !enabled);
+    ui.calHighBtn.classList.toggle('opacity-50', !enabled);
+    ui.calLowBtn.classList.toggle('opacity-50', !enabled);
+}
+
+/* SEND COMMAND string to Command Characteristic
+   Uses writeValueWithoutResponse for responsiveness (firmware expects WRITE or WRITE_NR)
+*/
+async function sendCommand(commandString) {
+    if (!commandCharacteristic) {
+        showMessage("Not connected", "error");
+        console.error("Command char missing");
+        return;
+    }
+    try {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(commandString);
+        // Prefer writeValueWithoutResponse if supported
+        if (commandCharacteristic.properties.writeWithoutResponse) {
+            await commandCharacteristic.writeValueWithoutResponse(data);
+        } else {
+            await commandCharacteristic.writeValue(data);
+        }
+        showMessage(`Sent: ${commandString}`);
+        console.log("Sent command:", commandString);
+    } catch (err) {
+        console.error("sendCommand error:", err);
+        showMessage("Send failed", "error");
+    }
+}
+
+/* Convenience wrapper for setting named configuration via BLE.
+   Firmware expects: CMD=SET_<SETTINGNAME>_<VALUE>
+   Example: CMD=SET_MUTE_1
+*/
+function updateSetting(name, value) {
+    // coerce into int string
+    const v = parseInt(value, 10);
+    if (Number.isNaN(v)) return;
+    const cmd = `CMD=SET_${name}_${v}`;
+    sendCommand(cmd);
+    // optimistically update the UI (firmware will also notify back)
+    // But reflect immediate UI feedback for better UX:
+    if (name === 'MUTE') ui.muteToggle.checked = !!v;
+    if (name === 'DWELL_DUR') { ui.dwellDuration.value = v; ui.dwellDurationValue.textContent = v; }
+    if (name === 'DWELL_ACTIVE') ui.dwellActiveToggle.checked = !!v;
+    if (name === 'MOTOR_EN') ui.motorEnToggle.checked = !!v;
+}
+
+/* BLE connect/disconnect logic */
+async function connectBLE() {
+    if (!navigator.bluetooth) {
+        showMessage("Web Bluetooth not supported", "error");
+        ui.connectionStatus.textContent = "Status: Web Bluetooth not supported in this browser.";
+        return;
+    }
+
+    try {
+        ui.connectionStatus.textContent = "Status: Scanning...";
+        ui.connectionStatus.classList.remove('text-red-400');
+        ui.connectionStatus.classList.add('text-yellow-400');
+        setCommandButtonsEnabled(false);
+
+        bleDevice = await navigator.bluetooth.requestDevice({
+            filters: [{ services: [SERVICE_UUID] }],
+            optionalServices: [SERVICE_UUID]
+        });
+
+        ui.deviceInfo.textContent = `BLE Device: ${bleDevice.name || 'Unknown'}`;
+        ui.connectionStatus.textContent = "Status: Connecting...";
+
+        bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+        gattServer = await bleDevice.gatt.connect();
+        const service = await gattServer.getPrimaryService(SERVICE_UUID);
+
+        // Characteristics
+        commandCharacteristic = await service.getCharacteristic(COMMAND_CHARACTERISTIC_UUID);
+        dataCharacteristic = await service.getCharacteristic(DATA_CHARACTERISTIC_UUID);
+
+        // Subscribe to notifications
+        if (dataCharacteristic.properties.notify) {
+            await dataCharacteristic.startNotifications();
+            dataCharacteristic.addEventListener('characteristicvaluechanged', handleCharacteristicUpdates);
         }
 
-        /**
-         * Updates the UI elements based on the received data packet.
-         * @param {object} data - Parsed data object from the ESP32.
-         */
-        function updateUI(data) {
-            
-            const powderPct = data.Powder !== undefined ? data.Powder : null;
-            const criticalPowderThreshold = 5; // Set the powder level that triggers a system alarm
-            
-            // Update Round Count
-            elements.totalCount.textContent = data.Cnt !== undefined ? data.Cnt : '--';
+        ui.connectionStatus.textContent = "Status: Connected";
+        ui.connectionStatus.classList.remove('text-yellow-400');
+        ui.connectionStatus.classList.remove('text-red-400');
+        ui.connectionStatus.classList.add('text-green-400');
 
-            // Update Powder Level text color
-            elements.powderLevel.textContent = powderPct !== null ? `${powderPct}%` : '--%';
-            if (powderPct !== null && powderPct <= criticalPowderThreshold) {
-                elements.powderLevel.className = 'text-5xl font-extrabold text-red-400';
-            } else if (powderPct !== null && powderPct < 20) {
-                elements.powderLevel.className = 'text-5xl font-extrabold text-yellow-400';
-            } else {
-                elements.powderLevel.className = 'text-5xl font-extrabold text-green-400';
-            }
+        ui.connectButton.classList.add('hidden');
+        ui.disconnectButton.classList.remove('hidden');
 
-            // --- Component Status Tiles ---
-            
-            // Primer
-            const primerDisplay = getStatusDisplay(data.Pri);
-            elements.primerTile.className = `p-4 rounded-xl text-center status-tile ${primerDisplay.class}`;
-            elements.primerStatusText.textContent = primerDisplay.text;
+        setCommandButtonsEnabled(true);
+        showMessage("Connected", "info");
+    } catch (err) {
+        console.error("connectBLE error:", err);
+        ui.connectionStatus.textContent = `Status: Conn failed (${err && err.name ? err.name : 'error'})`;
+        ui.connectionStatus.classList.remove('text-yellow-400');
+        ui.connectionStatus.classList.add('text-red-400');
+        ui.deviceInfo.textContent = 'BLE Device: N/A';
+        setCommandButtonsEnabled(false);
+        showMessage("Connection failed", "error");
+    }
+}
 
-            // Case
-            const caseDisplay = getStatusDisplay(data.Cas);
-            elements.caseTile.className = `p-4 rounded-xl text-center status-tile ${caseDisplay.class}`;
-            elements.caseStatusText.textContent = caseDisplay.text;
+function disconnectBLE() {
+    if (bleDevice && bleDevice.gatt.connected) {
+        bleDevice.gatt.disconnect();
+    } else {
+        console.log("No device connected");
+    }
+}
 
-            // Bullet
-            const bulletDisplay = getStatusDisplay(data.Bul);
-            elements.bulletTile.className = `p-4 rounded-xl text-center status-tile ${bulletDisplay.class}`;
-            elements.bulletStatusText.textContent = bulletDisplay.text;
-            
-            // --- System Status Tile (Background is static bg-gray-800) ---
-            let systemStatusValue = -1; // -1: Unknown, 0: Critical/Low, 1: OK
-            let systemTextColorClass = 'text-white';
-            let systemStatusTextContent = '--';
-            
-            // Check for critical states (Powder LOW OR any component LOW)
-            const isPowderCritical = (powderPct !== null && powderPct <= criticalPowderThreshold);
-            const isComponentCritical = (data.Pri === 0 || data.Cas === 0 || data.Bul === 0);
+/* On disconnect */
+function onDisconnected() {
+    console.log("Device disconnected");
+    ui.connectionStatus.textContent = "Status: Disconnected";
+    ui.connectionStatus.classList.remove('text-green-400');
+    ui.connectionStatus.classList.add('text-red-400');
 
-            if (data.Pri === 1 && data.Cas === 1 && data.Bul === 1 && (powderPct === null || powderPct > criticalPowderThreshold)) {
-                // System OK: All discrete components are OK (1) AND Powder is above threshold
-                systemStatusValue = 1; 
-            } else if (isPowderCritical || isComponentCritical) {
-                // System Critical: Powder is too low OR any component is missing (0)
-                systemStatusValue = 0; 
-            } else {
-                // Unknown/Missing data
-                systemStatusValue = -1;
-            }
+    ui.connectButton.classList.remove('hidden');
+    ui.disconnectButton.classList.add('hidden');
+    setCommandButtonsEnabled(false);
 
+    // Reset UI placeholders
+    ui.totalCount.textContent = '--';
+    ui.powderLevel.textContent = '--%';
+    ui.systemStatusText.textContent = '--';
+    ui.primerStatusText.textContent = '--';
+    ui.caseStatusText.textContent = '--';
+    ui.bulletStatusText.textContent = '--';
+    ui.motorStatusText.textContent = '--';
+    ui.motorDisplay.textContent = '--';
+}
 
-            // Determine Text Color and Content for the System Status
-            if (systemStatusValue === 1) {
-                systemStatusTextContent = 'OK';
-                systemTextColorClass = 'text-green-400';
-            } else if (systemStatusValue === 0) {
-                systemStatusTextContent = 'CRITICAL';
-                systemTextColorClass = 'text-red-400';
-            } else {
-                systemStatusTextContent = '--';
-                systemTextColorClass = 'text-white';
-            }
+/* Handle incoming notifications */
+function handleCharacteristicUpdates(event) {
+    try {
+        const value = event.target.value;
+        const decoder = new TextDecoder('utf-8');
+        const raw = decoder.decode(value);
+        // console.log("BLE RX:", raw);
+        const parsed = parseData(raw);
+        updateUI(parsed);
+    } catch (e) {
+        console.error("characteristic update error:", e);
+    }
+}
 
-            // Apply text and color class to the inner <p> element
-            elements.systemStatusText.textContent = systemStatusTextContent;
-            elements.systemStatusText.className = `text-5xl font-extrabold ${systemTextColorClass}`;
-            
-            // --- Motor Status Card (Matches component tile styling) ---
-            let motorText = '--';
-            let motorClassName = 'status-tile-unknown';
-            
-            if (data.Mot === 1) {
-                // Motor Running FWD (Good/Active state)
-                motorText = 'RUNNING (FWD)';
-                motorClassName = 'status-tile-ok';
-            } else if (data.Mot === 2) {
-                // Motor Running REV (Warning/Attention state)
-                motorText = 'RUNNING (REV)';
-                motorClassName = 'status-tile-low';
-            } else if (data.Mot === 0) {
-                // Motor Idle/Stopped (Default/Neutral state)
-                motorText = 'IDLE';
-                motorClassName = 'status-tile-unknown';
-            }
+/* Initialize tab buttons (simple tab system) */
+(function initTabs() {
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            tabBtns.forEach(b=> b.classList.remove('active'));
+            btn.classList.add('active');
 
-            // Apply dynamic background class to the motor tile
-            elements.motorTile.className = `p-4 rounded-xl text-center status-tile ${motorClassName}`;
-            // Apply status text
-            elements.motorStatusText.textContent = motorText;
-        }
+            const target = btn.getAttribute('data-tab');
+            document.querySelectorAll('.tab').forEach(t => t.classList.add('hidden'));
+            const tabEl = document.getElementById(`tab-${target}`);
+            if (tabEl) tabEl.classList.remove('hidden');
+        });
+    });
+    // Activate commands tab by default
+    const first = document.querySelector('.tab-btn');
+    if (first) first.click();
+})();
 
-        /**
-         * Parses the characteristic value string into a data object.
-         * Example: "Pri=1,Cas=1,Bul=1,Cnt=125,Powder=95,Mot=0"
-         * @param {string} valueString - The raw data string.
-         * @returns {object} - Parsed data object.
-         */
-        function parseData(valueString) {
-            const data = {};
-            try {
-                valueString.split(',').forEach(pair => {
-                    const [key, val] = pair.split('=');
-                    data[key] = parseInt(val, 10);
-                });
-            } catch (e) {
-                console.error("Error parsing data string:", e);
-            }
-            return data;
-        }
+/* On load: disable buttons if no bluetooth, try to reflect initial UI */
+window.addEventListener('load', () => {
+    if (!('bluetooth' in navigator)) {
+        ui.connectButton.disabled = true;
+        ui.connectButton.textContent = "BLE Not Supported";
+        ui.connectionStatus.textContent = "Status: BLE Not Supported";
+    }
+    setCommandButtonsEnabled(false);
+    // defaults
+    ui.dwellDurationValue.textContent = ui.dwellDuration.value || '--';
+});
 
-        /**
-         * Enables or disables all command buttons.
-         * @param {boolean} enable - True to enable, false to disable.
-         */
-        function setCommandButtonsEnabled(enable) {
-            elements.resetCountBtn.disabled = !enable;
-            elements.calHighBtn.disabled = !enable;
-            elements.calLowBtn.disabled = !enable;
-        }
+/* Optional: convenience keyboard shortcuts for debugging (ctrl+shift+c to connect) */
+window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && e.code === 'KeyC') {
+        connectBLE();
+    }
+});
+</script>
 
-        // =====================================================================
-        // BLE COMMANDS
-        // =====================================================================
-        
-        /**
-         * Sends a specific command string to the ESP32 Command Characteristic.
-         * @param {string} commandString - The command to send (e.g., "CMD=RESET_COUNT").
-         */
-        async function sendCommand(commandString) {
-            if (!commandCharacteristic) {
-                console.error("Command Characteristic not available.");
-                showMessage("Error: Not connected or characteristic missing.", "critical");
-                return;
-            }
-
-            // Convert string to ArrayBuffer for writing
-            const encoder = new TextEncoder();
-            const data = encoder.encode(commandString);
-
-            try {
-                // Use writeValueWithoutResponse for fire-and-forget commands (Write_NR)
-                await commandCharacteristic.writeValueWithoutResponse(data);
-                console.log(`Command sent: ${commandString}`);
-                showMessage(`Command Sent: ${commandString.split('=')[0]}`, "success");
-            } catch (error) {
-                console.error(`Error sending command ${commandString}:`, error);
-                showMessage(`Error sending command: ${error.message.substring(0, 50)}...`, "critical");
-            }
-        }
-
-        /**
-         * Displays a temporary feedback message to the user.
-         * @param {string} message - The message to display.
-         * @param {'success'|'critical'} type - Message type for styling.
-         */
-        function showMessage(message, type) {
-            elements.commandFeedback.textContent = message;
-            elements.commandFeedback.className = `text-center mt-4 text-sm font-medium ${type === 'success' ? 'text-green-400' : 'text-red-400'}`;
-            elements.commandFeedback.classList.remove('hidden');
-
-            // Hide the message after 3 seconds
-            setTimeout(() => {
-                elements.commandFeedback.classList.add('hidden');
-            }, 3000);
-        }
-
-        // =====================================================================
-        // BLE CONNECTION LOGIC
-        // =====================================================================
-
-        /**
-         * Connects to the ESP32 device via Web Bluetooth.
-         */
-        async function connectBLE() {
-            try {
-                elements.status.textContent = "Status: Scanning...";
-                elements.status.classList.remove('text-red-400', 'text-green-400');
-                elements.status.classList.add('text-yellow-400');
-                setCommandButtonsEnabled(false);
-                
-                // Request the device
-                bleDevice = await navigator.bluetooth.requestDevice({
-                    filters: [{ services: [SERVICE_UUID] }]
-                });
-
-                elements.deviceInfo.textContent = `BLE Device: ${bleDevice.name}`;
-                elements.status.textContent = "Status: Connecting...";
-
-                // Set up event listeners for disconnection
-                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
-
-                // Connect to GATT Server
-                const server = await bleDevice.gatt.connect();
-
-                // Get Service
-                const service = await server.getPrimaryService(SERVICE_UUID);
-
-                // Get Characteristics
-                dataCharacteristic = await service.getCharacteristic(DATA_CHARACTERISTIC_UUID);
-                commandCharacteristic = await service.getCharacteristic(COMMAND_CHARACTERISTIC_UUID);
-
-                // Subscribe to notifications from the Data Characteristic
-                await dataCharacteristic.startNotifications();
-                dataCharacteristic.addEventListener('characteristicvaluechanged', handleCharacteristicUpdates);
-
-                elements.status.textContent = "Status: Connected!";
-                elements.status.classList.remove('text-yellow-400');
-                elements.status.classList.add('text-green-400');
-                elements.connectButton.textContent = "Disconnect";
-                elements.connectButton.onclick = disconnectBLE;
-                setCommandButtonsEnabled(true);
-                
-                console.log("BLE Connection established.");
-
-            } catch (error) {
-                console.error("BLE Connection Error:", error);
-                elements.status.textContent = `Status: Connection Failed (${error.name})`;
-                elements.status.classList.remove('text-yellow-400');
-                elements.status.classList.add('text-red-400');
-                elements.deviceInfo.textContent = 'BLE Device: N/A';
-                elements.connectButton.textContent = "Connect to Press";
-                elements.connectButton.onclick = connectBLE;
-                setCommandButtonsEnabled(false);
-            }
-        }
-
-        /**
-         * Handles incoming data notifications from the ESP32.
-         * @param {Event} event - The characteristic value changed event.
-         */
-        function handleCharacteristicUpdates(event) {
-            try {
-                const value = event.target.value;
-                const decoder = new TextDecoder('utf-8');
-                const valueString = decoder.decode(value);
-                
-                // console.log("Received Data:", valueString); // Uncomment for debugging
-                const data = parseData(valueString);
-                updateUI(data);
-
-            } catch (e) {
-                console.error("Error processing received data:", e);
-            }
-        }
-
-        /**
-         * Disconnects the BLE connection.
-         */
-        function disconnectBLE() {
-            if (bleDevice && bleDevice.gatt.connected) {
-                bleDevice.gatt.disconnect();
-            }
-        }
-
-        /**
-         * Handles the disconnection event.
-         */
-        function onDisconnected(event) {
-            console.log('Device disconnected:', event.target.name);
-            elements.status.textContent = "Status: Disconnected";
-            elements.status.classList.remove('text-green-400', 'text-yellow-400');
-            elements.status.classList.add('text-red-400');
-            elements.connectButton.textContent = "Connect to Press";
-            elements.connectButton.onclick = connectBLE;
-            elements.deviceInfo.textContent = 'BLE Device: N/A';
-            setCommandButtonsEnabled(false);
-            
-            // Reset UI data to default
-            elements.totalCount.textContent = '--';
-            elements.powderLevel.textContent = '--%';
-            
-            // Reset System Status card - only text color changes now
-            elements.systemStatusText.textContent = '--';
-            elements.systemStatusText.className = 'text-5xl font-extrabold text-white';
-
-            // Reset Motor status tile
-            elements.motorTile.className = 'p-4 rounded-xl text-center status-tile status-tile-unknown';
-            elements.motorStatusText.textContent = '--';
-            
-            // Reset component tiles
-            elements.primerTile.className = 'p-4 rounded-xl text-center status-tile status-tile-unknown';
-            elements.primerStatusText.textContent = '--';
-            elements.caseTile.className = 'p-4 rounded-xl text-center status-tile status-tile-unknown';
-            elements.caseStatusText.textContent = '--';
-            elements.bulletTile.className = 'p-4 rounded-xl text-center status-tile status-tile-unknown';
-            elements.bulletStatusText.textContent = '--';
-        }
-
-        // Initialize on load
-        window.onload = function() {
-            if (!('bluetooth' in navigator)) {
-                console.error("Web Bluetooth API is not supported in this browser. Please use Chrome, Edge, or a compatible browser.");
-                elements.connectButton.disabled = true;
-                elements.connectButton.textContent = "BLE Not Supported";
-            }
-        };
-
-    </script>
 </body>
 </html>
-
-
-*** Begin Patch
-*** Update File: rmonitor.html
-
-@@ (somewhere near the bottom, before closing `</body>` tag)
-+  <!-- Advanced Settings Section -->
-+  <div id="extra-settings" style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">
-+    <h3>Advanced Settings</h3>
-+    <div style="margin-bottom: 8px;">
-+      <label for="dwellTimer">Dwell Timer (ms): </label>
-+      <input type="number" id="dwellTimer" min="0" />
-+    </div>
-+    <div style="margin-bottom: 8px;">
-+      <input type="checkbox" id="muteAlerts" />
-+      <label for="muteAlerts">Mute Alerts</label>
-+    </div>
-+    <div style="margin-bottom: 8px;">
-+      <input type="checkbox" id="motorControl" />
-+      <label for="motorControl">Enable Motor Control</label>
-+    </div>
-+    <button id="saveSettings">Save Settings</button>
-+  </div>
-+
-+  <script>
-+    document.addEventListener("DOMContentLoaded", () => {
-+      const dwellInput = document.getElementById("dwellTimer");
-+      const muteBox = document.getElementById("muteAlerts");
-+      const motorBox = document.getElementById("motorControl");
-+      const saveBtn = document.getElementById("saveSettings");
-+
-+      // Load stored settings (or use defaults)
-+      dwellInput.value = localStorage.getItem("dwellTimer") || "1000";
-+      muteBox.checked = localStorage.getItem("muteAlerts") === "true";
-+      motorBox.checked = localStorage.getItem("motorControl") === "true";
-+
-+      saveBtn.addEventListener("click", () => {
-+        const dwell = parseInt(dwellInput.value, 10);
-+        const mute = muteBox.checked;
-+        const motor = motorBox.checked;
-+
-+        localStorage.setItem("dwellTimer", dwell);
-+        localStorage.setItem("muteAlerts", mute);
-+        localStorage.setItem("motorControl", motor);
-+
-+        // TODO: send settings via BLE to your device
-+        // Example (depends on your BLE implementation):
-+        // bleDevice.writeCharacteristic("dwellTimerUuid", dwell);
-+        // bleDevice.writeCharacteristic("muteAlertsUuid", mute ? 1 : 0);
-+        // bleDevice.writeCharacteristic("motorControlUuid", motor ? 1 : 0);
-+
-+        alert("Settings saved");
-+      });
-+    });
-+
-+    function applySettings() {
-+      const dwell = parseInt(localStorage.getItem("dwellTimer"), 10);
-+      const mute = localStorage.getItem("muteAlerts") === "true";
-+      const motor = localStorage.getItem("motorControl") === "true";
-+
-+      // Use these values in your existing JS logic
-+      console.log("Settings:", { dwell, mute, motor });
-+      // If you have BLE messaging, send them now
-+    }
-+
-+    applySettings();
-+  </script>
-*** End Patch
