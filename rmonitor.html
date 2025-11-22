@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reloading Press Monitor</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght400;600;700&display=swap" rel="stylesheet">
     <style>
         body { 
             font-family: 'Inter', sans-serif; 
@@ -86,7 +86,7 @@
                 <p class="text-sm text-gray-500 mt-1">Hopper Percentage</p>
             </div>
 
-            <!-- 3. System Status Tile (Updated to match other dark gray cards) -->
+            <!-- 3. System Status Tile -->
             <div id="systemTile" class="bg-gray-800 p-6 rounded-xl data-card text-center">
                 <h2 class="text-lg font-semibold text-gray-400 mb-2">SYSTEM STATUS</h2>
                 <!-- Text color will change dynamically based on status -->
@@ -118,7 +118,7 @@
                     <p id="bulletStatusText" class="text-2xl font-bold mt-1 text-white">--</p>
                 </div>
 
-                <!-- 4. Motor Status Tile (Updated style and text) -->
+                <!-- 4. Motor Status Tile -->
                 <div id="motorTile" class="p-4 rounded-xl text-center status-tile status-tile-unknown">
                     <span class="font-medium text-lg text-white">Motor Status</span>
                     <p id="motorStatusText" class="text-2xl font-bold mt-1 text-white">--</p>
@@ -233,14 +233,18 @@
          * @param {object} data - Parsed data object from the ESP32.
          */
         function updateUI(data) {
+            
+            const powderPct = data.Powder !== undefined ? data.Powder : null;
+            const criticalPowderThreshold = 5; // Set the powder level that triggers a system alarm
+            
             // Update Round Count
             elements.totalCount.textContent = data.Cnt !== undefined ? data.Cnt : '--';
 
-            // Update Powder Level
-            elements.powderLevel.textContent = data.Powder !== undefined ? `${data.Powder}%` : '--%';
-            if (data.Powder < 5) {
+            // Update Powder Level text color
+            elements.powderLevel.textContent = powderPct !== null ? `${powderPct}%` : '--%';
+            if (powderPct !== null && powderPct <= criticalPowderThreshold) {
                 elements.powderLevel.className = 'text-5xl font-extrabold text-red-400';
-            } else if (data.Powder < 20) {
+            } else if (powderPct !== null && powderPct < 20) {
                 elements.powderLevel.className = 'text-5xl font-extrabold text-yellow-400';
             } else {
                 elements.powderLevel.className = 'text-5xl font-extrabold text-green-400';
@@ -263,19 +267,26 @@
             elements.bulletTile.className = `p-4 rounded-xl text-center status-tile ${bulletDisplay.class}`;
             elements.bulletStatusText.textContent = bulletDisplay.text;
             
-            // --- System Status Tile (Background is now static bg-gray-800) ---
+            // --- System Status Tile (Background is static bg-gray-800) ---
             let systemStatusValue = -1; // -1: Unknown, 0: Critical/Low, 1: OK
             let systemTextColorClass = 'text-white';
             let systemStatusTextContent = '--';
+            
+            // Check for critical states (Powder LOW OR any component LOW)
+            const isPowderCritical = (powderPct !== null && powderPct <= criticalPowderThreshold);
+            const isComponentCritical = (data.Pri === 0 || data.Cas === 0 || data.Bul === 0);
 
-            // Check if all component data is present and OK (1)
-            if (data.Pri === 1 && data.Cas === 1 && data.Bul === 1) {
-                systemStatusValue = 1; // All OK
-            } 
-            // Check if any component is Critical/Low (0)
-            else if (data.Pri === 0 || data.Cas === 0 || data.Bul === 0) {
-                systemStatusValue = 0; // Low/Critical
+            if (data.Pri === 1 && data.Cas === 1 && data.Bul === 1 && (powderPct === null || powderPct > criticalPowderThreshold)) {
+                // System OK: All discrete components are OK (1) AND Powder is above threshold
+                systemStatusValue = 1; 
+            } else if (isPowderCritical || isComponentCritical) {
+                // System Critical: Powder is too low OR any component is missing (0)
+                systemStatusValue = 0; 
+            } else {
+                // Unknown/Missing data
+                systemStatusValue = -1;
             }
+
 
             // Determine Text Color and Content for the System Status
             if (systemStatusValue === 1) {
@@ -293,7 +304,7 @@
             elements.systemStatusText.textContent = systemStatusTextContent;
             elements.systemStatusText.className = `text-5xl font-extrabold ${systemTextColorClass}`;
             
-            // --- Motor Status Card (Now matches component tile styling) ---
+            // --- Motor Status Card (Matches component tile styling) ---
             let motorText = '--';
             let motorClassName = 'status-tile-unknown';
             
