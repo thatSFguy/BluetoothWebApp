@@ -306,12 +306,20 @@
                 }
                 return;
             }
+            
+            // Check for Web Bluetooth API support first
+            if (!navigator.bluetooth) {
+                log('Web Bluetooth not supported by this browser/OS.', true);
+                updateConnectionStatus('Not Supported', false);
+                return;
+            }
+
 
             log('Scanning for BLE device...');
             updateConnectionStatus('Scanning...', false);
 
             try {
-                // 1. Request device
+                // 1. Request device - Filtering by the service UUID
                 device = await navigator.bluetooth.requestDevice({
                     filters: [{ services: [SERVICE_UUID] }],
                     optionalServices: [SERVICE_UUID]
@@ -345,16 +353,29 @@
 
             } catch (error) {
                 log(`BLE Error: ${error.message}`, true);
-                updateConnectionStatus('Disconnected', false);
+                if (error.name !== "NotFoundError") {
+                   updateConnectionStatus('Error', false);
+                } else {
+                   // This is the common case when the device is not found or user cancels
+                   updateConnectionStatus('Scan Failed', false);
+                   log('Scan cancelled or device not found. Ensure ESP32 is nearby.', true);
+                }
             }
         }
 
         // --- Event Listeners ---
         connectButton.addEventListener('click', connect);
 
-        // Initial status update
+        // Initial status update & API check
         document.addEventListener('DOMContentLoaded', () => {
             updateConnectionStatus();
+            if (!navigator.bluetooth) {
+                connectButton.disabled = true;
+                connectButton.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+                connectButton.classList.add('bg-gray-500', 'cursor-not-allowed');
+                statusText.textContent = 'BLE API Missing';
+                log('Web Bluetooth API is required but not found in this environment.', true);
+            }
         });
 
     </script>
