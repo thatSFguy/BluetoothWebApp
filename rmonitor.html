@@ -293,18 +293,21 @@ function updateUI(data) {
     }
 
     // Settings reflected from firmware:
-    if (data.Mute !== undefined) {
+    const now = Date.now();
+    const debounce = 300;
+    
+    if (data.Mute !== undefined && (now - lastUserSettingChange > debounce || ui.muteToggle.checked !== !!data.Mute)) {
         ui.muteToggle.checked = !!data.Mute;
     }
-    if (data.DwellDur !== undefined) {
-        ui.dwellDuration.value = Number(data.DwellDur);
-        ui.dwellDurationValue.textContent = data.DwellDur;
-    }
-    if (data.DwellAct !== undefined) {
+    if (data.DwellAct !== undefined && (now - lastUserSettingChange > debounce || ui.dwellActiveToggle.checked !== !!data.DwellAct)) {
         ui.dwellActiveToggle.checked = !!data.DwellAct;
     }
-    if (data.MotorEn !== undefined) {
+    if (data.MotorEn !== undefined && (now - lastUserSettingChange > debounce || ui.motorEnToggle.checked !== !!data.MotorEn)) {
         ui.motorEnToggle.checked = !!data.MotorEn;
+    }
+    if (data.DwellDur !== undefined && (now - lastUserSettingChange > debounce || ui.dwellDuration.value != data.DwellDur)) {
+        ui.dwellDuration.value = data.DwellDur;
+        ui.dwellDurationValue.textContent = data.DwellDur;
     }
 }
 
@@ -360,18 +363,23 @@ async function sendCommand(commandString) {
    Firmware expects: CMD=SET_<SETTINGNAME>_<VALUE>
    Example: CMD=SET_MUTE_1
 */
+let lastUserSettingChange = 0;
+
 function updateSetting(name, value) {
-    // coerce into int string
     const v = parseInt(value, 10);
     if (Number.isNaN(v)) return;
-    const cmd = `CMD=SET_${name}_${v}`;
-    sendCommand(cmd);
-    // optimistically update the UI (firmware will also notify back)
-    // But reflect immediate UI feedback for better UX:
+    sendCommand(`CMD=SET_${name}_${v}`);
+
+    // Optimistic update
     if (name === 'MUTE') ui.muteToggle.checked = !!v;
-    if (name === 'DWELL_DUR') { ui.dwellDuration.value = v; ui.dwellDurationValue.textContent = v; }
     if (name === 'DWELL_ACTIVE') ui.dwellActiveToggle.checked = !!v;
     if (name === 'MOTOR_EN') ui.motorEnToggle.checked = !!v;
+    if (name === 'DWELL_DUR') {
+        ui.dwellDuration.value = v;
+        ui.dwellDurationValue.textContent = v;
+    }
+
+    lastUserSettingChange = Date.now();
 }
 
 /* BLE connect/disconnect logic */
