@@ -537,3 +537,71 @@
     </script>
 </body>
 </html>
+
+
+*** Begin Patch
+*** Update File: rmonitor.html
+
+@@ (somewhere near the bottom, before closing `</body>` tag)
++  <!-- Advanced Settings Section -->
++  <div id="extra-settings" style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">
++    <h3>Advanced Settings</h3>
++    <div style="margin-bottom: 8px;">
++      <label for="dwellTimer">Dwell Timer (ms): </label>
++      <input type="number" id="dwellTimer" min="0" />
++    </div>
++    <div style="margin-bottom: 8px;">
++      <input type="checkbox" id="muteAlerts" />
++      <label for="muteAlerts">Mute Alerts</label>
++    </div>
++    <div style="margin-bottom: 8px;">
++      <input type="checkbox" id="motorControl" />
++      <label for="motorControl">Enable Motor Control</label>
++    </div>
++    <button id="saveSettings">Save Settings</button>
++  </div>
++
++  <script>
++    document.addEventListener("DOMContentLoaded", () => {
++      const dwellInput = document.getElementById("dwellTimer");
++      const muteBox = document.getElementById("muteAlerts");
++      const motorBox = document.getElementById("motorControl");
++      const saveBtn = document.getElementById("saveSettings");
++
++      // Load stored settings (or use defaults)
++      dwellInput.value = localStorage.getItem("dwellTimer") || "1000";
++      muteBox.checked = localStorage.getItem("muteAlerts") === "true";
++      motorBox.checked = localStorage.getItem("motorControl") === "true";
++
++      saveBtn.addEventListener("click", () => {
++        const dwell = parseInt(dwellInput.value, 10);
++        const mute = muteBox.checked;
++        const motor = motorBox.checked;
++
++        localStorage.setItem("dwellTimer", dwell);
++        localStorage.setItem("muteAlerts", mute);
++        localStorage.setItem("motorControl", motor);
++
++        // TODO: send settings via BLE to your device
++        // Example (depends on your BLE implementation):
++        // bleDevice.writeCharacteristic("dwellTimerUuid", dwell);
++        // bleDevice.writeCharacteristic("muteAlertsUuid", mute ? 1 : 0);
++        // bleDevice.writeCharacteristic("motorControlUuid", motor ? 1 : 0);
++
++        alert("Settings saved");
++      });
++    });
++
++    function applySettings() {
++      const dwell = parseInt(localStorage.getItem("dwellTimer"), 10);
++      const mute = localStorage.getItem("muteAlerts") === "true";
++      const motor = localStorage.getItem("motorControl") === "true";
++
++      // Use these values in your existing JS logic
++      console.log("Settings:", { dwell, mute, motor });
++      // If you have BLE messaging, send them now
++    }
++
++    applySettings();
++  </script>
+*** End Patch
