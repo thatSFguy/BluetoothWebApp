@@ -127,9 +127,10 @@
 
     <script>
         // --- BLE Configuration (MUST MATCH ESP32) ---
+        // Nordic UART Service (NUS) UUID
         const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
         const DATA_CHARACTERISTIC_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
-        // Note: COMMAND_CHARACTERISTIC_UUID is 6e400002-b5a3-f393-e0a9-e50e24dcca9e but not used here
+        const DEVICE_NAME_PREFIX = 'ReloadMeister-'; // Name prefix used for discovery
 
         let device, dataCharacteristic;
         let isConnected = false;
@@ -319,10 +320,12 @@
             updateConnectionStatus('Scanning...', false);
 
             try {
-                // 1. Request device - Filtering by the service UUID
+                // 1. Request device - Using namePrefix for reliable discovery
                 device = await navigator.bluetooth.requestDevice({
-                    filters: [{ services: [SERVICE_UUID] }],
-                    optionalServices: [SERVICE_UUID]
+                    // Use namePrefix to find the device reliably
+                    filters: [{ namePrefix: DEVICE_NAME_PREFIX }],
+                    // Use optionalServices to gain permission to access the NUS service after connection
+                    optionalServices: [SERVICE_UUID] 
                 });
 
                 device.addEventListener('gattserverdisconnected', onDisconnected);
@@ -358,7 +361,7 @@
                 } else {
                    // This is the common case when the device is not found or user cancels
                    updateConnectionStatus('Scan Failed', false);
-                   log('Scan cancelled or device not found. Ensure ESP32 is nearby.', true);
+                   log('Scan cancelled or device not found. Ensure ESP32 is nearby and has the name prefix: ' + DEVICE_NAME_PREFIX, true);
                 }
             }
         }
