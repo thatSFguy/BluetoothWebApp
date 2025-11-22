@@ -340,7 +340,12 @@
                 // 2. Connect to GATT Server
                 const server = await device.gatt.connect();
 
-                log('GATT connected. Fetching service...');
+                log('GATT connected. Stabilizing connection (300ms delay)...');
+                // ** FIX: Add a small delay to prevent a race condition where the ESP32 disconnects
+                // before the browser can retrieve the service map, which causes the error.**
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                log('Fetching service...');
                 // 3. Get Service (This step should now work as permission was explicitly granted)
                 const service = await server.getPrimaryService(SERVICE_UUID);
 
@@ -362,7 +367,8 @@
                 log(`[${new Date().toLocaleTimeString()}] Connection established.`);
 
             } catch (error) {
-                log(`BLE Error: GATT Error: Not supported. Full message: ${error.message}`, true);
+                // Log the actual error message which clearly indicates the connection state
+                log(`BLE Error: ${error.message}`, true); 
                 if (error.name !== "NotFoundError") {
                    updateConnectionStatus('Error', false);
                 } else {
