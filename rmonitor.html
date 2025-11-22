@@ -30,7 +30,7 @@
 
 <div class="max-w-5xl mx-auto">
     <header class="text-center mb-8">
-        <h1 class="text-3xl sm:text-4xl font-extrabold">Press Monitor Dashboard</h1>
+        <h1 class="text-3xl sm:text-4xl font-extrabold">Reload Meister Dashboard</h1>
         <p class="small-muted mt-1">Real-time status, settings, and motor control (Web Bluetooth)</p>
     </header>
 
@@ -91,7 +91,6 @@
             <div class="flex border-b border-gray-700">
                 <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="commands">Commands</button>
                 <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="settings">Settings</button>
-                <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="motor">Motor Control</button>
             </div>
 
             <!-- Commands Tab -->
@@ -137,12 +136,6 @@
                         <input id="motorEnToggle" type="checkbox" class="w-6 h-6" onchange="updateSetting('MOTOR_EN', this.checked ? 1 : 0)">
                     </div>
                 </div>
-            </div>
-
-            <!-- Motor Tab -->
-            <div id="tab-motor" class="tab hidden mt-6">
-                <p class="small-muted">Motor state reported from firmware. Latching or jog state is controlled on the device.</p>
-                <div id="motorDisplay" class="text-center text-2xl font-bold mt-4">--</div>
             </div>
 
         </div>
