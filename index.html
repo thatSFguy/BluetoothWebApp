@@ -7,7 +7,6 @@
 
     <!-- Tailwind -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="javascript.js"></script>
     <link href="style.css" rel="stylesheet"/>
 
 
@@ -67,6 +66,34 @@
             <div id="motorTile" class="status-tile status-tile-unknown p-4"><div class="font-medium">Motor</div><div id="motorStatusText" class="text-2xl font-bold mt-2">--</div></div>
         </div>
     </section>
+    
+    <!-- Active Load & Session History -->
+    <section class="bg-gray-800 p-6 rounded-xl data-card mb-8">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="font-bold">Active Load & Session Log</h3>
+            <button onclick="forceNewBatch()" class="text-sm text-yellow-400 hover:text-yellow-300 ml-4">New Batch</button>
+            <button onclick="clearActiveLoad()" class="text-sm text-red-400 hover:text-red-300">Clear Active</button>
+        </div>
+
+        <!-- Active Load Display -->
+        <div id="activeLoadDisplay" class="bg-gray-900/50 rounded-lg p-5 text-center border border-gray-700 hidden">
+            <div class="text-2xl font-bold text-indigo-400" id="activeLoadName">--</div>
+            <div class="text-sm text-gray-400 mt-1">Currently loading</div>
+            <div class="mt-3 grid grid-cols-3 gap-4 text-sm">
+                <div><span class="text-gray-500">Bullet:</span> <span id="activeBullet" class="font-medium">--</span></div>
+                <div><span class="text-gray-500">Powder:</span> <span id="activePowder" class="font-medium">--</span></div>
+                <div><span class="text-gray-500">PF:</span> <span id="activePF" class="font-bold text-yellow-400">--</span></div>
+            </div>
+        </div>
+
+        <!-- Session Log -->
+        <div class="mt-6">
+            <h4 class="font-semibold text-lg mb-3">Today's Session Log</h4>
+            <div id="sessionLog" class="text-sm space-y-1 max-h-64 overflow-y-auto">
+                <p class="text-gray-500 text-center">No rounds logged yet today</p>
+            </div>
+        </div>
+    </section>
 
     <!-- Tabbed Control Center -->
     <section class="bg-gray-800 p-6 rounded-xl data-card mb-8">
@@ -77,12 +104,84 @@
 
         <div class="mt-4">
             <div class="flex border-b border-gray-700">
+                <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="recipes">Load Recipes</button>
                 <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="commands">Commands</button>
                 <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="settings">Settings</button>
-                <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="recipes">Load Recipes</button>
             </div>
 
-            <!-- Commands Tab -->
+            <!-- NEW: Load Recipes Tab -->
+            <div id="tab-recipes" class="tab hidden mt-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h4 class="font-bold text-lg">Load Recipe Book</h4>
+                    <div class="flex gap-2">
+                        <button onclick="exportRecipes()" class="px-3 py-1 bg-green-600 hover:bg-green-700 text-sm rounded">Export JSON</button>
+                        <label class="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-sm rounded cursor-pointer">
+                            Import JSON <input type="file" id="importFile" accept=".json" onchange="importRecipes(event)" class="hidden">
+                        </label>
+                        <button onclick="addNewRecipe()" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-sm rounded">+ Add Recipe</button>
+                        <button onclick="openPrintView()" class="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-sm rounded">Print View</button>
+                        <button onclick="openOptionsModal()" class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-sm rounded">Edit Options</button>
+                    </div>
+                </div>
+                
+                <!-- Search/Filter -->
+                <div class="mb-4">
+                    <input type="text" id="recipeSearch" placeholder="Search recipes (caliber, notes, powder, etc.)..." class="w-full px-3 py-2 bg-gray-700 rounded-lg text-white" oninput="filterRecipes(this.value)">
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table id="recipesTable" class="w-full text-sm text-left">
+                        <thead class="bg-gray-700">
+                            <tr>
+                                <th class="px-3 py-2">ID</th>
+                                <th class="px-3 py-2">Caliber</th>
+                                <th class="px-3 py-2">Notes</th>
+                                <th class="px-3 py-2">Case</th>
+                                <th class="px-3 py-2">Primer</th>
+                                <th class="px-3 py-2">Bullet</th>
+                                <th class="px-3 py-2">Powder</th>
+                                <th class="px-3 py-2">Firearm</th>
+                                <th class="px-3 py-2">FPS</th>
+                                <th class="px-3 py-2 font-bold text-yellow-400">PF</th>
+                                <th class="px-3 py-2 text-right">Lifetime</th>
+                                <th class="px-3 py-2">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recipesBody">
+                            <!-- Rows inserted by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Print Modal (hidden by default) -->
+                <div id="printModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+                    <div class="bg-white text-black p-6 max-w-6xl w-full max-h-screen overflow-y-auto">
+                        <div class="flex justify-between mb-4">
+                            <h4 class="font-bold text-lg">Load Recipes - Print View</h4>
+                            <button onclick="closePrintView()" class="text-black">&times; Close</button>
+                        </div>
+                        <div id="printTableContainer" class="overflow-x-auto">
+                            <!-- Print table inserted by JS -->
+                        </div>
+                        <button onclick="window.print()" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded">Print This Page</button>
+                    </div>
+                </div>
+
+                <!-- Options Edit Modal -->
+                <div id="optionsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+                    <div class="bg-gray-800 text-white p-6 rounded max-w-2xl w-full max-h-screen overflow-y-auto">
+                        <div class="flex justify-between mb-4">
+                            <h4 class="font-bold text-lg">Edit Picklist Options</h4>
+                            <button onclick="closeOptionsModal()" class="text-white">&times; Close</button>
+                        </div>
+                        <div id="optionsEditor" class="space-y-4">
+                            <!-- Dynamic form inserted by JS -->
+                        </div>
+                        <button onclick="saveOptions()" class="px-4 py-2 bg-green-600 rounded">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+                        <!-- Commands Tab -->
             <div id="tab-commands" class="tab hidden mt-6">
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <button id="resetCountBtn" class="px-4 py-3 bg-red-600 rounded-lg font-bold hover:bg-red-700" onclick="sendCommand('CMD=RESET_COUNT')" disabled>Reset Counter</button>
@@ -126,78 +225,6 @@
                     </div>
                 </div>
             </div>
-            <!-- NEW: Load Recipes Tab -->
-            <div id="tab-recipes" class="tab hidden mt-6">
-                <div class="flex justify-between items-center mb-4">
-                    <h4 class="font-bold text-lg">Load Recipe Book</h4>
-                    <div class="flex gap-2">
-                        <button onclick="exportRecipes()" class="px-3 py-1 bg-green-600 hover:bg-green-700 text-sm rounded">Export JSON</button>
-                        <label class="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-sm rounded cursor-pointer">
-                            Import JSON <input type="file" id="importFile" accept=".json" onchange="importRecipes(event)" class="hidden">
-                        </label>
-                        <button onclick="addNewRecipe()" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-sm rounded">+ Add Recipe</button>
-                        <button onclick="openPrintView()" class="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-sm rounded">Print View</button>
-                        <button onclick="openOptionsModal()" class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-sm rounded">Edit Options</button>
-                    </div>
-                </div>
-                
-                <!-- Search/Filter -->
-                <div class="mb-4">
-                    <input type="text" id="recipeSearch" placeholder="Search recipes (caliber, notes, powder, etc.)..." class="w-full px-3 py-2 bg-gray-700 rounded-lg text-white" oninput="filterRecipes(this.value)">
-                </div>
-
-                <div class="overflow-x-auto">
-                    <table id="recipesTable" class="w-full text-sm text-left">
-                        <thead class="bg-gray-700">
-                            <tr>
-                                <th class="px-3 py-2">ID</th>
-                                <th class="px-3 py-2">Caliber</th>
-                                <th class="px-3 py-2">Notes</th>
-                                <th class="px-3 py-2">Case</th>
-                                <th class="px-3 py-2">Primer</th>
-                                <th class="px-3 py-2">Bullet</th>
-                                <th class="px-3 py-2">Powder</th>
-                                <th class="px-3 py-2">Firearm</th>
-                                <th class="px-3 py-2">FPS</th>
-                                <th class="px-3 py-2 font-bold text-yellow-400">PF</th>
-                                <th class="px-3 py-2">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="recipesBody">
-                            <!-- Rows inserted by JS -->
-                        </tbody>
-                    </table>
-                </div>
-                <p class="small-muted mt-4">Data is saved automatically in your browser. Use Export/Import to backup or transfer.</p>
-
-                <!-- Print Modal (hidden by default) -->
-                <div id="printModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
-                    <div class="bg-white text-black p-6 max-w-6xl w-full max-h-screen overflow-y-auto">
-                        <div class="flex justify-between mb-4">
-                            <h4 class="font-bold text-lg">Load Recipes - Print View</h4>
-                            <button onclick="closePrintView()" class="text-black">&times; Close</button>
-                        </div>
-                        <div id="printTableContainer" class="overflow-x-auto">
-                            <!-- Print table inserted by JS -->
-                        </div>
-                        <button onclick="window.print()" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded">Print This Page</button>
-                    </div>
-                </div>
-
-                <!-- Options Edit Modal -->
-                <div id="optionsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
-                    <div class="bg-gray-800 text-white p-6 rounded max-w-2xl w-full max-h-screen overflow-y-auto">
-                        <div class="flex justify-between mb-4">
-                            <h4 class="font-bold text-lg">Edit Picklist Options</h4>
-                            <button onclick="closeOptionsModal()" class="text-white">&times; Close</button>
-                        </div>
-                        <div id="optionsEditor" class="space-y-4">
-                            <!-- Dynamic form inserted by JS -->
-                        </div>
-                        <button onclick="saveOptions()" class="px-4 py-2 bg-green-600 rounded">Save Changes</button>
-                    </div>
-                </div>
-            </div>
             
             <p class="small-muted mt-4">Data is saved automatically in your browser. Use Export/Import to backup or transfer.</p>
         </div>
@@ -205,4 +232,17 @@
 </div>
 
 </body>
+    <script>
+    tailwind.config = {
+        content: ["./index.html"],
+        theme: {
+        extend: {
+            fontFamily: {
+            sans: ['ui-sans-serif', 'system-ui', '-apple-system', "Segoe UI", 'Roboto', 'sans-serif'],
+            }
+        }
+        }
+    }
+    </script>
+    <script  type="text/javascript" src="javascript.js"></script>
 </html>
