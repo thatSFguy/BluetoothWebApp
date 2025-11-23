@@ -14,6 +14,14 @@ let gattServer = null;
 let commandCharacteristic = null;
 let dataCharacteristic = null;
 
+/* ================
+   Recipe Load Globals
+   ================ */
+let activeRecipeId = null;  // null = no active load
+const SESSION_LOG_KEY = 'reloading_session_log_v1';
+let sessionLog = JSON.parse(localStorage.getItem(SESSION_LOG_KEY)) || [];
+let lastCount = null;  // To detect when a new round is completed
+
 /* UI refs */
 const ui = {
     connectionStatus: document.getElementById('connectionStatus'),
@@ -74,9 +82,20 @@ function parseData(valueString) {
 /* Update UI based on parsed data */
 function updateUI(data) {
     // Rounds
-    if (data.Cnt !== undefined) ui.totalCount.textContent = data.Cnt;
-    else ui.totalCount.textContent = '--';
+    //if (data.Cnt !== undefined) ui.totalCount.textContent = data.Cnt;
+    //else ui.totalCount.textContent = '--';
+    // Inside updateUI(), after updating totalCount
+    if (data.Cnt !== undefined) {
+        ui.totalCount.textContent = data.Cnt;
 
+        // THIS IS THE KEY LINE — logs rounds when counter increases
+        if (activeRecipeId !== null && lastCount !== null && data.Cnt > lastCount) {
+            logCompletedRound(data.Cnt);
+        }
+        lastCount = data.Cnt;
+    } else {
+        ui.totalCount.textContent = '--';
+    }
     // Powder percentage
     if (data.Powder !== undefined) {
         ui.powderLevel.textContent = `${data.Powder}%`;
@@ -409,50 +428,60 @@ function renderRecipes(filter = '') {
     filteredRecipes.sort((a, b) => a.id - b.id);
 
     filteredRecipes.forEach(recipe => {
-        const highlightedClass = currentFilter ? 'bg-yellow-900/20' : '';
+        const isActive = activeRecipeId === recipe.id;
         const tr = document.createElement('tr');
-        tr.className = `border-t border-gray-700 hover:bg-gray-700/50 ${highlightedClass}`;
+        tr.className = `border-t border-gray-700 hover:bg-gray-700/50 ${isActive ? 'bg-indigo-900/30 ring-2 ring-indigo-500' : ''}`;
         tr.innerHTML = `
-            <td class="px-3 py-2">${recipe.id}</td>
-            <td class="px-3 py-2">
-                <select class="bg-gray-800 rounded px-1 py-0.5 text-sm w-full" onchange="updateRecipe(${recipe.id}, 'caliber', this.value)">${optionsHtml(options.caliber, recipe.caliber)}</select>
-            </td>
-            <td class="px-3 py-2">
-                <input type="text" maxlength="200" class="bg-gray-800 rounded px-1 py-0.5 text-sm w-full" value="${escapeHtml(recipe.notes || '')}" onchange="updateRecipe(${recipe.id}, 'notes', this.value)">
-            </td>
-            <td class="px-3 py-2 text-xs">
-                <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'caseMfg', this.value)">${optionsHtml(options.mfg, recipe.caseMfg)}</select><br>
-                <input type="number" step="0.001" placeholder="Length" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.caseLength || ''}" onchange="updateRecipe(${recipe.id}, 'caseLength', this.value)">
-                <input type="number" step="0.001" placeholder="OAL" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.caseOal || ''}" onchange="updateRecipe(${recipe.id}, 'caseOal', this.value)">
-            </td>
-            <td class="px-3 py-2 text-xs">
-                <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'primerMfg', this.value)">${optionsHtml(options.mfg, recipe.primerMfg)}</select><br>
-                <select class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" onchange="updateRecipe(${recipe.id}, 'primerType', this.value)">${optionsHtml(options.primerType, recipe.primerType)}</select>
-            </td>
-            <td class="px-3 py-2 text-xs">
-                <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'bulletMfg', this.value)">${optionsHtml(options.mfg, recipe.bulletMfg)}</select><br>
-                <input type="text" maxlength="50" placeholder="Type" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${escapeHtml(recipe.bulletType || '')}" onchange="updateRecipe(${recipe.id}, 'bulletType', this.value)">
-                <input type="number" placeholder="Grain" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.bulletGrain || ''}" onchange="updateRecipe(${recipe.id}, 'bulletGrain', this.value); recalcPF(${recipe.id})">
-            </td>
-            <td class="px-3 py-2 text-xs">
-                <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'powderMfg', this.value)">${optionsHtml(options.mfg, recipe.powderMfg)}</select><br>
-                <input type="text" maxlength="50" placeholder="Type" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${escapeHtml(recipe.powderType || '')}" onchange="updateRecipe(${recipe.id}, 'powderType', this.value)">
-                <input type="number" step="0.1" placeholder="Grains" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.powderGrain || ''}" onchange="updateRecipe(${recipe.id}, 'powderGrain', this.value)">
-            </td>
-            <td class="px-3 py-2">
-                <input type="text" maxlength="20" class="bg-gray-800 rounded px-1 py-0.5 w-20" value="${escapeHtml(recipe.firearm || '')}" onchange="updateRecipe(${recipe.id}, 'firearm', this.value)">
-            </td>
-            <td class="px-3 py-2">
-                <input type="number" max="9999" class="bg-gray-800 rounded px-1 py-0.5 w-20" value="${recipe.fps || ''}" onchange="updateRecipe(${recipe.id}, 'fps', this.value); recalcPF(${recipe.id})">
-            </td>
-            <td class="px-3 py-2 font-bold text-yellow-400" id="pf-${recipe.id}">${calculatePF(recipe.bulletGrain, recipe.fps)}</td>
-            <td class="px-3 py-2 text-center">
-                <button onclick="duplicateRecipe(${recipe.id})" class="text-green-400 hover:text-green-300 text-xs mr-1">Duplicate</button>
-                <button onclick="deleteRecipe(${recipe.id})" class="text-red-400 hover:text-red-300 text-xs">Delete</button>
-            </td>
-        `;
+        <td class="px-3 py-2">${recipe.id}</td>
+        <td class="px-3 py-2">
+            <select class="bg-gray-800 rounded px-1 py-0.5 text-sm w-full" onchange="updateRecipe(${recipe.id}, 'caliber', this.value)">${optionsHtml(options.caliber, recipe.caliber)}</select>
+        </td>
+        <td class="px-3 py-2">
+            <input type="text" maxlength="200" class="bg-gray-800 rounded px-1 py-0.5 text-sm w-full" value="${escapeHtml(recipe.notes || '')}" onchange="updateRecipe(${recipe.id}, 'notes', this.value)">
+        </td>
+        <td class="px-3 py-2 text-xs">
+            <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'caseMfg', this.value)">${optionsHtml(options.mfg, recipe.caseMfg)}</select><br>
+            <input type="number" step="0.001" placeholder="Length" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.caseLength || ''}" onchange="updateRecipe(${recipe.id}, 'caseLength', this.value)">
+            <input type="number" step="0.001" placeholder="OAL" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.caseOal || ''}" onchange="updateRecipe(${recipe.id}, 'caseOal', this.value)">
+        </td>
+        <td class="px-3 py-2 text-xs">
+            <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'primerMfg', this.value)">${optionsHtml(options.mfg, recipe.primerMfg)}</select><br>
+            <select class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" onchange="updateRecipe(${recipe.id}, 'primerType', this.value)">${optionsHtml(options.primerType, recipe.primerType)}</select>
+        </td>
+        <td class="px-3 py-2 text-xs">
+            <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'bulletMfg', this.value)">${optionsHtml(options.mfg, recipe.bulletMfg)}</select><br>
+            <input type="text" maxlength="50" placeholder="Type" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${escapeHtml(recipe.bulletType || '')}" onchange="updateRecipe(${recipe.id}, 'bulletType', this.value)">
+            <input type="number" placeholder="Grain" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.bulletGrain || ''}" onchange="updateRecipe(${recipe.id}, 'bulletGrain', this.value); recalcPF(${recipe.id})">
+        </td>
+        <td class="px-3 py-2 text-xs">
+            <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'powderMfg', this.value)">${optionsHtml(options.mfg, recipe.powderMfg)}</select><br>
+            <input type="text" maxlength="50" placeholder="Type" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${escapeHtml(recipe.powderType || '')}" onchange="updateRecipe(${recipe.id}, 'powderType', this.value)">
+            <input type="number" step="0.1" placeholder="Grains" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.powderGrain || ''}" onchange="updateRecipe(${recipe.id}, 'powderGrain', this.value)">
+        </td>
+        <td class="px-3 py-2">
+            <input type="text" maxlength="20" class="bg-gray-800 rounded px-1 py-0.5 w-20" value="${escapeHtml(recipe.firearm || '')}" onchange="updateRecipe(${recipe.id}, 'firearm', this.value)">
+        </td>
+        <td class="px-3 py-2">
+            <input type="number" max="9999" class="bg-gray-800 rounded px-1 py-0.5 w-20" value="${recipe.fps || ''}" onchange="updateRecipe(${recipe.id}, 'fps', this.value); recalcPF(${recipe.id})">
+        </td>
+        <td class="px-3 py-2 font-bold text-yellow-400" id="pf-${recipe.id}">${calculatePF(recipe.bulletGrain, recipe.fps)}</td>
+        <td class="px-3 py-2 text-right text-sm">
+            <span class="font-medium text-green-400">${(recipe.lifetimeTotal || 0).toLocaleString()}</span>
+        </td>
+        <td class="px-3 py-2 text-center whitespace-nowrap">
+            ${isActive 
+                ? '<span class="text-green-400 font-bold">ACTIVE</span>'
+                : `<button onclick="setActiveLoad(${recipe.id})" class="text-indigo-400 hover:text-indigo-300 text-xs font-medium">Set Active</button>`
+            }
+            <button onclick="duplicateRecipe(${recipe.id})" class="text-green-400 hover:text-green-300 text-xs ml-3">Dup</button>
+            <button onclick="deleteRecipe(${recipe.id})" class="text-red-400 hover:text-red-300 text-xs ml-3">Del</button>
+        </td>
+    `;
         tbody.appendChild(tr);
     });
+
+    updateActiveLoadDisplay();
+    renderSessionLog();
 }
 
 function filterRecipes(query) {
@@ -472,9 +501,16 @@ function escapeHtml(text) {
 function updateRecipe(id, field, value) {
     const recipe = recipes.find(r => r.id === id);
     if (!recipe) return;
-    recipe[field] = value;
+
+    // Handle number fields properly (convert empty string to empty, not "0")
+    if (['caseLength', 'caseOal', 'bulletGrain', 'powderGrain', 'fps'].includes(field)) {
+        recipe[field] = value === '' ? '' : parseFloat(value);
+    } else {
+        recipe[field] = value;
+    }
+
     saveRecipes();
-    recalcPF(id); // Auto-recalc PF if needed
+    recalcPF(id); // Update PF if bullet weight or FPS changed
 }
 
 function recalcPF(id) {
@@ -493,13 +529,14 @@ function calculatePF(grain, fps) {
 function addNewRecipe() {
     const newRecipe = {
         id: nextId++,
-        caliber: options.caliber[0] || '', // Default to first option
+        caliber: options.caliber[0] || '',
         notes: '',
         caseMfg: '', caseLength: '', caseOal: '',
         primerMfg: '', primerType: '',
         bulletMfg: '', bulletType: '', bulletGrain: '',
         powderMfg: '', powderType: '', powderGrain: '',
-        firearm: '', fps: ''
+        firearm: '', fps: '',
+        lifetimeTotal: 0  // ← important!
     };
     recipes.push(newRecipe);
     saveRecipes();
@@ -561,43 +598,63 @@ function importRecipes(event) {
 function openPrintView() {
     const modal = document.getElementById('printModal');
     const container = document.getElementById('printTableContainer');
+
+    // Sort by ID for clean printout
+    const sortedRecipes = [...recipes].sort((a, b) => a.id - b.id);
+
     container.innerHTML = `
-        <table class="w-full border-collapse border-2 border-black print-table">
+        <table class="w-full border-collapse border-2 border-black">
             <thead>
-                <tr class="bg-gray-100">
-                    <th class="border border-black px-4 py-2">ID</th>
-                    <th class="border border-black px-4 py-2">Caliber</th>
-                    <th class="border border-black px-4 py-2">Notes</th>
-                    <th class="border border-black px-4 py-2">Case MFG / Length / OAL</th>
-                    <th class="border border-black px-4 py-2">Primer MFG / Type</th>
-                    <th class="border border-black px-4 py-2">Bullet MFG / Type / Grain</th>
-                    <th class="border border-black px-4 py-2">Powder MFG / Type / Grain</th>
-                    <th class="border border-black px-4 py-2">Firearm</th>
-                    <th class="border border-black px-4 py-2">FPS</th>
-                    <th class="border border-black px-4 py-2 font-bold">PF</th>
+                <tr class="bg-gray-200 text-black">
+                    <th class="border border-black px-4 py-3 text-left">ID</th>
+                    <th class="border border-black px-4 py-3 text-left">Caliber</th>
+                    <th class="border border-black px-4 py-3 text-left">Notes</th>
+                    <th class="border border-black px-4 py-3 text-left">Case<br><small>MFG / Length / OAL</small></th>
+                    <th class="border border-black px-4 py-3 text-left">Primer<br><small>MFG / Type</small></th>
+                    <th class="border border-black px-4 py-3 text-left">Bullet<br><small>MFG / Type / Grain</small></th>
+                    <th class="border border-black px-4 py-3 text-left">Powder<br><small>MFG / Type / Grains</small></th>
+                    <th class="border border-black px-4 py-3 text-left">Firearm</th>
+                    <th class="border border-black px-4 py-3 text-left">FPS</th>
+                    <th class="border border-black px-4 py-3 text-left font-bold">PF</th>
                 </tr>
             </thead>
             <tbody>
-                ${recipes.map(recipe => `
-                    <tr>
-                        <td class="border border-black px-4 py-2">${recipe.id}</td>
-                        <td class="border border-black px-4 py-2">${recipe.caliber || ''}</td>
-                        <td class="border border-black px-4 py-2">${escapeHtml(recipe.notes || '')}</td>
-                        <td class="border border-black px-4 py-2">${(recipe.caseMfg || '')} / ${recipe.caseLength || ''} / ${recipe.caseOal || ''}</td>
-                        <td class="border border-black px-4 py-2">${(recipe.primerMfg || '')} / ${recipe.primerType || ''}</td>
-                        <td class="border border-black px-4 py-2">${(recipe.bulletMfg || '')} / ${escapeHtml(recipe.bulletType || '')} / ${recipe.bulletGrain || ''}</td>
-                        <td class="border border-black px-4 py-2">${(recipe.powderMfg || '')} / ${escapeHtml(recipe.powderType || '')} / ${recipe.powderGrain || ''}</td>
-                        <td class="border border-black px-4 py-2">${escapeHtml(recipe.firearm || '')}</td>
-                        <td class="border border-black px-4 py-2">${recipe.fps || ''}</td>
-                        <td class="border border-black px-4 py-2 font-bold">${calculatePF(recipe.bulletGrain, recipe.fps)}</td>
+                ${sortedRecipes.map(r => `
+                    <tr class="even:bg-gray-50">
+                        <td class="border border-black px-4 py-3 align-top">${r.id}</td>
+                        <td class="border border-black px-4 py-3 align-top">${escapeHtml(r.caliber || '')}</td>
+                        <td class="border border-black px-4 py-3 align-top max-w-48">${escapeHtml(r.notes || '')}</td>
+                        <td class="border border-black px-4 py-3 align-top text-sm">
+                            ${escapeHtml(r.caseMfg || '')}<br>
+                            ${r.caseLength || ''} / ${r.caseOal || ''}
+                        </td>
+                        <td class="border border-black px-4 py-3 align-top text-sm">
+                            ${escapeHtml(r.primerMfg || '')}<br>
+                            ${escapeHtml(r.primerType || '')}
+                        </td>
+                        <td class="border border-black px-4 py-3 align-top text-sm">
+                            ${escapeHtml(r.bulletMfg || '')}<br>
+                            ${escapeHtml(r.bulletType || '')} / ${r.bulletGrain || ''}
+                        </td>
+                        <td class="border border-black px-4 py-3 align-top text-sm">
+                            ${escapeHtml(r.powderMfg || '')}<br>
+                            ${escapeHtml(r.powderType || '')} / ${r.powderGrain || ''}
+                        </td>
+                        <td class="border border-black px-4 py-3 align-top">${escapeHtml(r.firearm || '')}</td>
+                        <td class="border border-black px-4 py-3 align-top text-center">${r.fps || ''}</td>
+                        <td class="border border-black px-4 py-3 align-top text-center font-bold text-lg">
+                            ${calculatePF(r.bulletGrain, r.fps)}
+                        </td>
                     </tr>
                 `).join('')}
             </tbody>
         </table>
     `;
+
     modal.classList.remove('hidden');
-    // Auto-trigger print after a short delay
-    setTimeout(() => window.print(), 500);
+
+    // Optional: auto-print after a tiny delay so the modal renders first
+    setTimeout(() => window.print(), 300);
 }
 
 function closePrintView() {
@@ -651,6 +708,174 @@ function removeOption(key, value) {
     options[key] = options[key].filter(opt => opt !== value);
     openOptionsModal(); // Refresh modal
 }
+function setActiveLoad(id) {
+    activeRecipeId = id;
+    localStorage.setItem('active_recipe_id', id);
+    renderRecipes(currentFilter);
+    showMessage("Active load set!", "info");
+}
+
+function clearActiveLoad() {
+    activeRecipeId = null;
+    localStorage.removeItem('active_recipe_id');
+    renderRecipes(currentFilter);
+    showMessage("Active load cleared", "info");
+}
+
+function updateActiveLoadDisplay() {
+    const display = document.getElementById('activeLoadDisplay');
+    const nameEl = document.getElementById('activeLoadName');
+    const bulletEl = document.getElementById('activeBullet');
+    const powderEl = document.getElementById('activePowder');
+    const pfEl = document.getElementById('activePF');
+
+    if (!activeRecipeId) {
+        display.classList.add('hidden');
+        return;
+    }
+
+    const recipe = recipes.find(r => r.id === activeRecipeId);
+    if (!recipe) {
+        clearActiveLoad();
+        return;
+    }
+
+    display.classList.remove('hidden');
+    nameEl.textContent = `${recipe.caliber} - ${recipe.notes || 'Untitled'}`;
+    bulletEl.textContent = `${recipe.bulletMfg || ''} ${recipe.bulletType || ''} ${recipe.bulletGrain || ''}gr`.trim() || '--';
+    powderEl.textContent = `${recipe.powderMfg || ''} ${recipe.powderType || ''} ${recipe.powderGrain || ''}gr`.trim() || '--';
+    pfEl.textContent = calculatePF(recipe.bulletGrain, recipe.fps);
+}
+
+function logCompletedRound(currentTotal) {
+    if (!activeRecipeId || lastCount === null || currentTotal <= lastCount) return;
+
+    const roundsAdded = currentTotal - lastCount;
+    const recipe = recipes.find(r => r.id === activeRecipeId);
+    if (!recipe) return;
+
+    const now = Date.now();
+    const recipeName = `${recipe.caliber} - ${recipe.notes || 'Untitled'}`;
+
+    // Find the MOST RECENT batch for this recipe (not the oldest!)
+    const lastBatch = sessionLog.find(entry => 
+        entry.recipeId === activeRecipeId && 
+        entry.isBatch === true
+    );
+
+    let currentBatch;
+
+    if (lastBatch && (now - new Date(lastBatch.lastUpdate).getTime()) < 60 * 60 * 1000) {
+        // Within 60 minutes of the most recent batch → add to it
+        currentBatch = lastBatch;
+        currentBatch.rounds += roundsAdded;
+        currentBatch.totalCount = currentTotal;
+        currentBatch.lastUpdate = new Date().toISOString();
+        currentBatch.prettyTime = new Date().toLocaleString();
+    } else {
+        // More than 60 min → new batch
+        currentBatch = {
+            date: new Date().toISOString(),
+            prettyTime: new Date().toLocaleString(),
+            recipeId: activeRecipeId,
+            recipeName: recipeName,
+            rounds: roundsAdded,
+            totalCount: currentTotal,
+            isBatch: true,
+            lastUpdate: new Date().toISOString()
+        };
+        sessionLog.unshift(currentBatch); // newest first
+    }
+
+    // Update lifetime total
+    recipe.lifetimeTotal = (recipe.lifetimeTotal || 0) + roundsAdded;
+
+    localStorage.setItem(SESSION_LOG_KEY, JSON.stringify(sessionLog));
+    saveRecipes();
+    lastCount = currentTotal;
+
+    renderSessionLog();           // This will now show the batch!
+    renderRecipes(currentFilter); // Updates lifetime in table
+}
+
+// 2. Beautiful session log with lifetime total
+function renderSessionLog() {
+    const container = document.getElementById('sessionLog');
+    const today = new Date().toDateString();
+    const activeRecipe = activeRecipeId ? recipes.find(r => r.id === activeRecipeId) : null;
+
+    const todaysBatches = sessionLog
+        .filter(e => e.isBatch && new Date(e.date).toDateString() === today);
+
+    if (todaysBatches.length === 0 && !activeRecipe) {
+        container.innerHTML = '<p class="text-gray-500 text-center">No batches logged today</p>';
+        return;
+    }
+
+    let html = '';
+
+    if (activeRecipe) {
+        const lifetime = activeRecipe.lifetimeTotal || 0;
+        html += `
+            <div class="mb-4 p-4 bg-indigo-900/30 rounded-lg border border-indigo-700">
+                <div class="text-sm text-indigo-300">Currently Active Load</div>
+                <div class="text-2xl font-bold text-white">${activeRecipe.caliber} - ${activeRecipe.notes || 'Untitled'}</div>
+                <div class="text-sm text-gray-400 mt-1">
+                    Lifetime loaded: <span class="font-bold text-green-400">${lifetime.toLocaleString()}</span> rounds
+                </div>
+            </div>
+        `;
+    }
+
+    if (todaysBatches.length > 0) {
+        html += '<div class="text-lg font-semibold mb-3 text-indigo-300">Today\'s Batches</div>';
+        html += todaysBatches.map(batch => {
+            const time = batch.prettyTime.split(',')[1].trim();
+            return `
+                <div class="flex justify-between items-center py-3 px-4 bg-gray-800/60 rounded-lg mb-2">
+                    <div>
+                        <span class="text-xs text-gray-400">${time}</span>
+                        <span class="ml-3 font-medium">${batch.recipeName}</span>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-2xl font-bold text-green-400">+${batch.rounds}</span>
+                        <span class="text-gray-500 text-sm ml-2">(total: ${batch.totalCount})</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } else if (activeRecipe) {
+        html += '<p class="text-gray-500 text-center mt-4">Start loading to begin logging batches</p>';
+    }
+
+    container.innerHTML = html;
+}
+
+// === 3. Update setActiveLoad() to close old batch when switching loads ===
+function setActiveLoad(id) {
+    if (activeRecipeId && activeRecipeId !== id) {
+        // Switching loads → forces a new batch next time
+        showMessage("Switched active load — next rounds start a new batch", "info");
+    }
+    activeRecipeId = id;
+    localStorage.setItem('active_recipe_id', id);
+    renderRecipes(currentFilter);
+    updateActiveLoadDisplay();
+}
+
+// === 4. Optional: Add a "New Batch" button (force split) ===
+
+function forceNewBatch() {
+    if (!activeRecipeId) return;
+    // Just advance the "last update" time far into the past
+    const lastBatch = sessionLog.find(e => e.recipeId === activeRecipeId && e.isBatch);
+    if (lastBatch) {
+        lastBatch.lastUpdate = new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(); // yesterday
+    }
+    showMessage("Next rounds will start a new batch", "info");
+}
+
+activeRecipeId = parseInt(localStorage.getItem('active_recipe_id')) || null;
 
 // Auto-render when tab is opened
 document.querySelector('[data-tab="recipes"]').addEventListener('click', () => {
