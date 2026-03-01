@@ -3,83 +3,72 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
     <title>Reload Meister Monitor</title>
-
-    <!-- Tailwind -->
-    <script src="https://cdn.tailwindcss.com"></script>
     <link href="style.css" rel="stylesheet"/>
-
-
 </head>
-<body class="min-h-screen p-6">
+<body>
 
-<!-- NOTE: firmware reference: /mnt/data/main.cpp (uploaded by user) -->
-
-<div class="max-w-5xl mx-auto">
-    <header class="text-center mb-8">
-        <h1 class="text-3xl sm:text-4xl font-extrabold">Reload Meister Dashboard</h1>
-        <p class="small-muted mt-1">Real-time status, settings, and motor control (Web Bluetooth)</p>
+<div class="container">
+    <header class="header-bar section-gap">
+        <div>
+            <h1 class="heading-xl">Reload Meister Dashboard</h1>
+            <p class="small-muted mt-1">Real-time status &amp; control (Web Bluetooth)</p>
+        </div>
+        <div class="header-controls">
+            <button class="icon-toggle hidden" onclick="toggleMute()" title="Toggle mute" id="muteToggleBtn">&#128264;</button>
+            <button class="icon-toggle" onclick="toggleTheme()" title="Toggle light/dark mode" id="themeToggleBtn">&#9790;</button>
+        </div>
     </header>
 
-    <!-- Connection Card -->
-    <section class="bg-gray-800 p-6 rounded-xl data-card mb-8">
-        <div class="flex flex-col sm:flex-row justify-between items-center gap-4">
-            <div>
+    <!-- Connection & System Status -->
+    <section class="card section-gap">
+        <div class="connection-status-bar">
+            <div class="connection-info">
                 <p id="connectionStatus" class="text-red-400 font-semibold">Status: Disconnected</p>
                 <p id="deviceInfo" class="small-muted">BLE Device: N/A</p>
             </div>
-            <div class="flex gap-3">
-                <button id="connectButton" class="px-5 py-2 bg-indigo-600 rounded-lg font-bold hover:bg-indigo-700" onclick="connectBLE()">Connect to Press</button>
-                <button id="disconnectButton" class="px-4 py-2 bg-gray-700 rounded-lg hidden" onclick="disconnectBLE()">Disconnect</button>
+            <div class="system-status-display" id="systemStatusBlock">
+                <span class="text-sm text-gray-400">System</span>
+                <span id="systemStatusText" class="system-status-value text-white">--</span>
+            </div>
+            <div class="btn-group">
+                <button id="connectButton" class="btn btn-lg btn-indigo" onclick="connectBLE()">Connect to Press</button>
+                <button id="disconnectButton" class="btn btn-md btn-gray hidden" onclick="disconnectBLE()">Disconnect</button>
+            </div>
+        </div>
+        <!-- Device Settings (shown when connected, toggled by link) -->
+        <button id="deviceSettingsToggle" class="device-settings-link hidden" onclick="toggleDeviceSettings()">&#9881; Device Settings</button>
+        <div id="deviceSettingsPanel" class="device-settings-panel hidden">
+            <div id="settingsContainer" class="settings-list">
+                <!-- Populated by JS -->
             </div>
         </div>
     </section>
 
-    <!-- Top Status Grid -->
-    <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div class="bg-gray-800 p-6 rounded-xl data-card text-center">
-            <h2 class="text-sm text-gray-400">Total Rounds</h2>
-            <p id="totalCount" class="text-4xl font-extrabold text-indigo-400">--</p>
-            <p class="small-muted mt-1">Completed cycles</p>
-        </div>
-
-        <div class="bg-gray-800 p-6 rounded-xl data-card text-center">
-            <h2 class="text-sm text-gray-400">Powder Level</h2>
-            <p id="powderLevel" class="text-4xl font-extrabold text-green-400">--%</p>
-            <p class="small-muted mt-1">Hopper %</p>
-        </div>
-
-        <div class="bg-gray-800 p-6 rounded-xl data-card text-center">
-            <h2 class="text-sm text-gray-400">System Status</h2>
-            <p id="systemStatusText" class="text-4xl font-extrabold text-white">--</p>
-            <p class="small-muted mt-1">Overall system health</p>
+    <!-- Press Status Tiles (dynamic) -->
+    <section id="componentSection" class="card section-gap">
+        <h3 class="font-bold mb-4">Press Status</h3>
+        <div id="componentTilesContainer" class="grid-tiles">
+            <!-- Populated by JS: Total Rounds, Powder Level, sensor tiles -->
         </div>
     </section>
 
-    <!-- Component & Motor -->
-    <section class="bg-gray-800 p-6 rounded-xl data-card mb-8">
-        <h3 class="font-bold mb-4">Component & Motor Status</h3>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div id="primerTile" class="status-tile status-tile-unknown p-4"><div class="font-medium">Primers</div><div id="primerStatusText" class="text-2xl font-bold mt-2">--</div></div>
-            <div id="caseTile" class="status-tile status-tile-unknown p-4"><div class="font-medium">Cases</div><div id="caseStatusText" class="text-2xl font-bold mt-2">--</div></div>
-            <div id="bulletTile" class="status-tile status-tile-unknown p-4"><div class="font-medium">Bullets</div><div id="bulletStatusText" class="text-2xl font-bold mt-2">--</div></div>
-            <div id="motorTile" class="status-tile status-tile-unknown p-4"><div class="font-medium">Motor</div><div id="motorStatusText" class="text-2xl font-bold mt-2">--</div></div>
-        </div>
-    </section>
-    
     <!-- Active Load & Session History -->
-    <section class="bg-gray-800 p-6 rounded-xl data-card mb-8">
-        <div class="flex justify-between items-center mb-4">
+    <section class="card section-gap">
+        <div class="flex-row-between mb-4">
             <h3 class="font-bold">Active Load & Session Log</h3>
-            <button onclick="forceNewBatch()" class="text-sm text-yellow-400 hover:text-yellow-300 ml-4">New Batch</button>
-            <button onclick="clearActiveLoad()" class="text-sm text-red-400 hover:text-red-300">Clear Active</button>
+            <div>
+                <button onclick="forceNewBatch()" class="btn-link text-sm text-yellow-400 ml-4">New Batch</button>
+                <button onclick="clearActiveLoad()" class="btn-link text-sm text-red-400">Clear Active</button>
+            </div>
         </div>
 
         <!-- Active Load Display -->
-        <div id="activeLoadDisplay" class="bg-gray-900/50 rounded-lg p-5 text-center border border-gray-700 hidden">
+        <div id="activeLoadDisplay" class="active-load-display hidden">
             <div class="text-2xl font-bold text-indigo-400" id="activeLoadName">--</div>
             <div class="text-sm text-gray-400 mt-1">Currently loading</div>
-            <div class="mt-3 grid grid-cols-3 gap-4 text-sm">
+            <div class="active-load-details">
                 <div><span class="text-gray-500">Bullet:</span> <span id="activeBullet" class="font-medium">--</span></div>
                 <div><span class="text-gray-500">Powder:</span> <span id="activePowder" class="font-medium">--</span></div>
                 <div><span class="text-gray-500">PF:</span> <span id="activePF" class="font-bold text-yellow-400">--</span></div>
@@ -89,160 +78,81 @@
         <!-- Session Log -->
         <div class="mt-6">
             <h4 class="font-semibold text-lg mb-3">Today's Session Log</h4>
-            <div id="sessionLog" class="text-sm space-y-1 max-h-64 overflow-y-auto">
+            <div id="sessionLog" class="session-log">
                 <p class="text-gray-500 text-center">No rounds logged yet today</p>
             </div>
         </div>
     </section>
 
-    <!-- Tabbed Control Center -->
-    <section class="bg-gray-800 p-6 rounded-xl data-card mb-8">
-        <div class="flex items-center justify-between">
-            <h3 class="font-bold">Control Center</h3>
-            <p id="commandFeedback" class="small-muted" style="opacity:0">Ready</p>
+    <!-- Load Recipes -->
+    <section class="card section-gap">
+        <div class="flex-row-between">
+            <h3 class="font-bold">Load Recipes</h3>
+            <div class="btn-group" style="align-items:center">
+                <div class="view-toggle">
+                    <button class="view-toggle-btn active" id="viewCardsBtn" onclick="setRecipeView('cards')">Cards</button>
+                    <button class="view-toggle-btn" id="viewTableBtn" onclick="setRecipeView('table')">Table</button>
+                </div>
+                <p id="commandFeedback" class="small-muted" style="opacity:0">Ready</p>
+            </div>
         </div>
 
         <div class="mt-4">
-            <div class="flex border-b border-gray-700">
-                <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="recipes">Load Recipes</button>
-                <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="commands">Commands</button>
-                <button class="tab-btn px-4 py-2 text-gray-300 font-semibold border-b-2 border-transparent" data-tab="settings">Settings</button>
-            </div>
-
-            <!-- NEW: Load Recipes Tab -->
-            <div id="tab-recipes" class="tab hidden mt-6">
-                <div class="flex justify-between items-center mb-4">
-                    <h4 class="font-bold text-lg">Load Recipe Book</h4>
-                    <div class="flex gap-2">
-                        <button onclick="exportRecipes()" class="px-3 py-1 bg-green-600 hover:bg-green-700 text-sm rounded">Export JSON</button>
-                        <label class="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-sm rounded cursor-pointer">
-                            Import JSON <input type="file" id="importFile" accept=".json" onchange="importRecipes(event)" class="hidden">
-                        </label>
-                        <button onclick="addNewRecipe()" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-sm rounded">+ Add Recipe</button>
-                        <button onclick="openPrintView()" class="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-sm rounded">Print View</button>
-                        <button onclick="openOptionsModal()" class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-sm rounded">Edit Options</button>
-                    </div>
-                </div>
-                
-                <!-- Search/Filter -->
-                <div class="mb-4">
-                    <input type="text" id="recipeSearch" placeholder="Search recipes (caliber, notes, powder, etc.)..." class="w-full px-3 py-2 bg-gray-700 rounded-lg text-white" oninput="filterRecipes(this.value)">
-                </div>
-
-                <div class="overflow-x-auto">
-                    <table id="recipesTable" class="w-full text-sm text-left">
-                        <thead class="bg-gray-700">
-                            <tr>
-                                <th class="px-3 py-2">ID</th>
-                                <th class="px-3 py-2">Caliber</th>
-                                <th class="px-3 py-2">Notes</th>
-                                <th class="px-3 py-2">Case</th>
-                                <th class="px-3 py-2">Primer</th>
-                                <th class="px-3 py-2">Bullet</th>
-                                <th class="px-3 py-2">Powder</th>
-                                <th class="px-3 py-2">Firearm</th>
-                                <th class="px-3 py-2">FPS</th>
-                                <th class="px-3 py-2 font-bold text-yellow-400">PF</th>
-                                <th class="px-3 py-2 text-right">Lifetime</th>
-                                <th class="px-3 py-2">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="recipesBody">
-                            <!-- Rows inserted by JS -->
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Print Modal (hidden by default) -->
-                <div id="printModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
-                    <div class="bg-white text-black p-6 max-w-6xl w-full max-h-screen overflow-y-auto">
-                        <div class="flex justify-between mb-4">
-                            <h4 class="font-bold text-lg">Load Recipes - Print View</h4>
-                            <button onclick="closePrintView()" class="text-black">&times; Close</button>
-                        </div>
-                        <div id="printTableContainer" class="overflow-x-auto">
-                            <!-- Print table inserted by JS -->
-                        </div>
-                        <button onclick="window.print()" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded">Print This Page</button>
-                    </div>
-                </div>
-
-                <!-- Options Edit Modal -->
-                <div id="optionsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
-                    <div class="bg-gray-800 text-white p-6 rounded max-w-2xl w-full max-h-screen overflow-y-auto">
-                        <div class="flex justify-between mb-4">
-                            <h4 class="font-bold text-lg">Edit Picklist Options</h4>
-                            <button onclick="closeOptionsModal()" class="text-white">&times; Close</button>
-                        </div>
-                        <div id="optionsEditor" class="space-y-4">
-                            <!-- Dynamic form inserted by JS -->
-                        </div>
-                        <button onclick="saveOptions()" class="px-4 py-2 bg-green-600 rounded">Save Changes</button>
-                    </div>
+            <div class="flex-row-between mb-4 flex-wrap gap-2">
+                <div class="btn-group flex-wrap gap-2">
+                    <button onclick="exportRecipes()" class="btn btn-sm btn-green">Export JSON</button>
+                    <label class="btn btn-sm btn-indigo cursor-pointer">
+                        Import JSON <input type="file" id="importFile" accept=".json" onchange="importRecipes(event)" class="hidden">
+                    </label>
+                    <button onclick="addNewRecipe()" class="btn btn-sm btn-blue">+ Add Recipe</button>
+                    <button onclick="openPrintView()" class="btn btn-sm btn-gray">Print View</button>
+                    <button onclick="openOptionsModal()" class="btn btn-sm btn-purple">Edit Options</button>
                 </div>
             </div>
-                        <!-- Commands Tab -->
-            <div id="tab-commands" class="tab hidden mt-6">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <button id="resetCountBtn" class="px-4 py-3 bg-red-600 rounded-lg font-bold hover:bg-red-700" onclick="sendCommand('CMD=RESET_COUNT')" disabled>Reset Counter</button>
-                    <button id="calHighBtn" class="px-4 py-3 bg-blue-600 rounded-lg font-bold hover:bg-blue-700" onclick="sendCommand('CMD=CAL_HIGH')" disabled>Calibrate Full (Hopper Max)</button>
-                    <button id="calLowBtn" class="px-4 py-3 bg-yellow-600 rounded-lg font-bold hover:bg-yellow-700" onclick="sendCommand('CMD=CAL_LOW')" disabled>Calibrate Empty (Hopper Min)</button>
-                </div>
-                <p class="small-muted mt-3">Calibration commands save values to ESP32 NVS.</p>
+
+            <!-- Search/Filter -->
+            <div class="mb-4">
+                <input type="text" id="recipeSearch" placeholder="Search recipes (caliber, notes, powder, etc.)..." class="input-dark" oninput="filterRecipes(this.value)">
             </div>
 
-            <!-- Settings Tab -->
-            <div id="tab-settings" class="tab hidden mt-6">
-                <div class="space-y-4 max-w-2xl">
-                    <div class="flex justify-between items-center">
-                        <div>
-                            <div class="font-semibold">Mute Alerts</div>
-                            <div class="small-muted">When on, no alert tones will play</div>
-                        </div>
-                        <input id="muteToggle" type="checkbox" class="w-6 h-6" onchange="updateSetting('MUTE', this.checked ? 1 : 0)">
-                    </div>
-
-                    <div class="flex justify-between items-center">
-                        <div>
-                            <div class="font-semibold">Dwell Beep Active</div>
-                            <div class="small-muted">Plays dwell beep on each counted cycle</div>
-                        </div>
-                        <input id="dwellActiveToggle" type="checkbox" class="w-6 h-6" onchange="updateSetting('DWELL_ACTIVE', this.checked ? 1 : 0)">
-                    </div>
-
-                    <div>
-                        <label class="font-semibold">Dwell Duration (ms)</label>
-                        <input id="dwellDuration" type="range" min="50" max="5000" step="50" class="w-full mt-2" oninput="document.getElementById('dwellDurationValue').textContent = this.value" onchange="updateSetting('DWELL_DUR', this.value)">
-                        <div id="dwellDurationValue" class="small-muted mt-1">--</div>
-                    </div>
-
-                    <div class="flex justify-between items-center">
-                        <div>
-                            <div class="font-semibold">Motor Control Enabled</div>
-                            <div class="small-muted">Allow the web dashboard + firmware to run the motor</div>
-                        </div>
-                        <input id="motorEnToggle" type="checkbox" class="w-6 h-6" onchange="updateSetting('MOTOR_EN', this.checked ? 1 : 0)">
-                    </div>
-                </div>
+            <!-- Recipe Cards -->
+            <div id="recipesContainer" class="recipe-list">
+                <!-- Recipe cards inserted by JS -->
             </div>
-            
+
             <p class="small-muted mt-4">Data is saved automatically in your browser. Use Export/Import to backup or transfer.</p>
+
+            <!-- Print Modal -->
+            <div id="printModal" class="modal-overlay hidden">
+                <div class="modal-content-light">
+                    <div class="flex-row-between mb-4">
+                        <h4 class="font-bold text-lg">Load Recipes - Print View</h4>
+                        <button onclick="closePrintView()" class="btn-link text-black" style="font-size:1.25rem">&times; Close</button>
+                    </div>
+                    <div id="printTableContainer" class="overflow-x-auto">
+                        <!-- Print table inserted by JS -->
+                    </div>
+                    <button onclick="window.print()" class="btn btn-md btn-blue mt-4">Print This Page</button>
+                </div>
+            </div>
+
+            <!-- Options Edit Modal -->
+            <div id="optionsModal" class="modal-overlay hidden">
+                <div class="modal-content-dark">
+                    <div class="flex-row-between mb-4">
+                        <h4 class="font-bold text-lg">Edit Picklist Options</h4>
+                        <button onclick="closeOptionsModal()" class="btn-link" style="font-size:1.25rem;color:var(--text)">&times; Close</button>
+                    </div>
+                    <div id="optionsEditor" class="space-y-4">
+                        <!-- Dynamic form inserted by JS -->
+                    </div>
+                    <button onclick="saveOptions()" class="btn btn-md btn-green mt-4">Save Changes</button>
+                </div>
+            </div>
         </div>
     </section>
 </div>
 
+<script type="text/javascript" src="javascript.js"></script>
 </body>
-    <script>
-    tailwind.config = {
-        content: ["./index.html"],
-        theme: {
-        extend: {
-            fontFamily: {
-            sans: ['ui-sans-serif', 'system-ui', '-apple-system', "Segoe UI", 'Roboto', 'sans-serif'],
-            }
-        }
-        }
-    }
-    </script>
-    <script  type="text/javascript" src="javascript.js"></script>
 </html>

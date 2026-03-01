@@ -15,61 +15,176 @@ let commandCharacteristic = null;
 let dataCharacteristic = null;
 
 /* ================
-   Recipe Load Globals
+   Device Profile & Capability Maps
    ================ */
-let activeRecipeId = null;  // null = no active load
-const SESSION_LOG_KEY = 'reloading_session_log_v1';
-let sessionLog = JSON.parse(localStorage.getItem(SESSION_LOG_KEY)) || [];
-let lastCount = null;  // To detect when a new round is completed
+let deviceProfile = { maker: null, api: null, identified: false, capabilities: {} };
+let dynamicUIBuilt = false;
 
-/* UI refs */
-const ui = {
-    connectionStatus: document.getElementById('connectionStatus'),
-    deviceInfo: document.getElementById('deviceInfo'),
-    connectButton: document.getElementById('connectButton'),
-    disconnectButton: document.getElementById('disconnectButton'),
-
-    totalCount: document.getElementById('totalCount'),
-    powderLevel: document.getElementById('powderLevel'),
-    systemStatusText: document.getElementById('systemStatusText'),
-
-    primerTile: document.getElementById('primerTile'),
-    primerStatusText: document.getElementById('primerStatusText'),
-    caseTile: document.getElementById('caseTile'),
-    caseStatusText: document.getElementById('caseStatusText'),
-    bulletTile: document.getElementById('bulletTile'),
-    bulletStatusText: document.getElementById('bulletStatusText'),
-    motorTile: document.getElementById('motorTile'),
-    motorStatusText: document.getElementById('motorStatusText'),
-
-    // Tab controls
-    commandFeedback: document.getElementById('commandFeedback'),
-    resetCountBtn: document.getElementById('resetCountBtn'),
-    calHighBtn: document.getElementById('calHighBtn'),
-    calLowBtn: document.getElementById('calLowBtn'),
-
-    // Settings controls
-    muteToggle: document.getElementById('muteToggle'),
-    dwellActiveToggle: document.getElementById('dwellActiveToggle'),
-    dwellDuration: document.getElementById('dwellDuration'),
-    dwellDurationValue: document.getElementById('dwellDurationValue'),
-    motorEnToggle: document.getElementById('motorEnToggle'),
-
-    // Motor display
-    motorDisplay: document.getElementById('motorDisplay'),
+const SENSOR_TILES = {
+    Pri: { label: 'Primers', id: 'primer' },
+    Cas: { label: 'Cases', id: 'case' },
+    Bul: { label: 'Bullets', id: 'bullet' },
+    CaseObs: { label: 'Case Obstruction', id: 'caseobs' },
+    PdAlign: { label: 'Primer Disk', id: 'pdalign' },
+    PowChk: { label: 'Powder Check', id: 'powchk' }
 };
 
-/* Helper: parse incoming BLE data string into object
-   Expected format produced by firmware:
-   "Pri=%d,Cas=%d,Bul=%d,Cnt=%d,Powder=%d,Mot=%d,Mute=%d,DwellDur=%d,DwellAct=%d,MotorEn=%d"
-*/
+const SETTINGS_MAP = {
+    DwellAct: { label: 'Dwell Beep Active', desc: 'Plays dwell beep on each counted cycle', type: 'toggle', cmd: 'DWELL_ACTIVE', inputId: 'dwellActiveToggle' },
+    DwellDur: { label: 'Dwell Duration (ms)', desc: null, type: 'range', cmd: 'DWELL_DUR', inputId: 'dwellDuration', min: 50, max: 5000, step: 50 },
+    MotorEn: { label: 'Motor Control Enabled', desc: 'Allow the web dashboard + firmware to run the motor', type: 'toggle', cmd: 'MOTOR_EN', inputId: 'motorEnToggle' }
+};
+
+/* ================
+   Recipe Load Globals
+   ================ */
+let activeRecipeId = null;
+const SESSION_LOG_KEY = 'reloading_session_log_v1';
+let sessionLog = JSON.parse(localStorage.getItem(SESSION_LOG_KEY)) || [];
+let lastCount = null;
+const expandedRecipes = new Set();
+let recipeViewMode = localStorage.getItem('recipe_view_mode') || 'cards';
+
+/* ================
+   Theme Toggle
+   ================ */
+function toggleTheme() {
+    const isLight = document.body.classList.toggle('light');
+    localStorage.setItem('theme', isLight ? 'light' : 'dark');
+    const btn = document.getElementById('themeToggleBtn');
+    if (btn) btn.textContent = isLight ? '\u2600' : '\u263E';
+}
+
+function applyStoredTheme() {
+    const stored = localStorage.getItem('theme');
+    if (stored === 'light') {
+        document.body.classList.add('light');
+        const btn = document.getElementById('themeToggleBtn');
+        if (btn) btn.textContent = '\u2600';
+    }
+}
+
+/* ================
+   Recipe View Toggle
+   ================ */
+function setRecipeView(mode) {
+    recipeViewMode = mode;
+    localStorage.setItem('recipe_view_mode', mode);
+    document.getElementById('viewCardsBtn').classList.toggle('active', mode === 'cards');
+    document.getElementById('viewTableBtn').classList.toggle('active', mode === 'table');
+    renderRecipes(currentFilter);
+}
+
+/* ================
+   Web Alert Sound
+   ================ */
+let audioCtx = null;
+let alertPlaying = false;
+const criticalState = {};
+
+function playAlertTone() {
+    if (isMuted || alertPlaying) return;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    alertPlaying = true;
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 880;
+    gain.gain.value = 0.3;
+
+    // Pulse the frequency for urgency
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+    osc.frequency.setValueAtTime(660, audioCtx.currentTime + 0.3);
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.6);
+    osc.frequency.setValueAtTime(660, audioCtx.currentTime + 0.9);
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime + 1.2);
+    osc.frequency.setValueAtTime(660, audioCtx.currentTime + 1.5);
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime + 1.8);
+    osc.frequency.setValueAtTime(660, audioCtx.currentTime + 2.1);
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime + 2.4);
+    osc.frequency.setValueAtTime(660, audioCtx.currentTime + 2.7);
+
+    // Fade out at the end
+    gain.gain.setValueAtTime(0.3, audioCtx.currentTime + 2.5);
+    gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 3);
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 3);
+    osc.onended = () => { alertPlaying = false; };
+}
+
+function checkCriticalAlerts(data) {
+    const checks = {
+        Pri: data.Pri, Cas: data.Cas, Bul: data.Bul,
+        CaseObs: data.CaseObs, PdAlign: data.PdAlign, PowChk: data.PowChk
+    };
+
+    // Powder critical at <= 5%
+    if (data.Powder !== undefined) {
+        checks.PowderCritical = data.Powder <= 5 ? 0 : 1;
+    }
+
+    for (const [key, val] of Object.entries(checks)) {
+        if (val === undefined) continue;
+        const wasCritical = criticalState[key] === true;
+        const isCritical = val === 0;
+
+        if (isCritical && !wasCritical) {
+            playAlertTone();
+        }
+        criticalState[key] = isCritical;
+    }
+}
+
+/* ================
+   Mute Toggle (header button)
+   ================ */
+let isMuted = false;
+
+function toggleMute() {
+    isMuted = !isMuted;
+    sendCommand(`CMD=SET_MUTE_${isMuted ? 1 : 0}`);
+    updateMuteButton();
+}
+
+function updateMuteButton() {
+    const btn = document.getElementById('muteToggleBtn');
+    if (!btn) return;
+    btn.textContent = isMuted ? '\uD83D\uDD07' : '\uD83D\uDD08';
+    btn.title = isMuted ? 'Unmute alerts' : 'Mute alerts';
+}
+
+/* UI refs — populated on load + rebindUIRefs() after dynamic build */
+const ui = {
+    connectionStatus: null,
+    deviceInfo: null,
+    connectButton: null,
+    disconnectButton: null,
+    totalCount: null,
+    powderLevel: null,
+    systemStatusText: null,
+    commandFeedback: null,
+};
+
+function bindStaticUI() {
+    ui.connectionStatus = document.getElementById('connectionStatus');
+    ui.deviceInfo = document.getElementById('deviceInfo');
+    ui.connectButton = document.getElementById('connectButton');
+    ui.disconnectButton = document.getElementById('disconnectButton');
+    ui.commandFeedback = document.getElementById('commandFeedback');
+    ui.systemStatusText = document.getElementById('systemStatusText');
+}
+
+/* Parse incoming BLE data string into object */
 function parseData(valueString) {
     const obj = {};
     try {
         valueString.split(',').forEach(pair => {
             const [k, v] = pair.split('=');
             if (!k) return;
-            // parseInt safe fallback
             const n = parseInt((v||'').trim(), 10);
             obj[k.trim()] = Number.isNaN(n) ? (v||'').trim() : n;
         });
@@ -79,101 +194,279 @@ function parseData(valueString) {
     return obj;
 }
 
-/* Update UI based on parsed data */
+/* ================
+   Device Identification
+   ================ */
+function identifyDevice(parsed) {
+    if (parsed.Maker) {
+        deviceProfile.maker = parsed.Maker;
+        deviceProfile.api = parsed.API || null;
+        deviceProfile.identified = true;
+        console.log(`Device identified: ${deviceProfile.maker} (API ${deviceProfile.api})`);
+        return true;
+    }
+    return false;
+}
+
+function detectCapabilities(parsed) {
+    for (const key of Object.keys(parsed)) {
+        deviceProfile.capabilities[key] = true;
+    }
+    if (!deviceProfile.identified) {
+        deviceProfile.maker = 'Dillon';
+        deviceProfile.identified = true;
+        console.log("No device ID message — defaulting to Dillon 1050");
+    }
+}
+
+/* ================
+   Tile Action Panels
+   ================ */
+function toggleTileActions(panelId) {
+    const panel = document.getElementById(panelId + 'Actions');
+    if (panel) panel.classList.toggle('hidden');
+}
+
+/* ================
+   Device Settings Toggle
+   ================ */
+function toggleDeviceSettings() {
+    const panel = document.getElementById('deviceSettingsPanel');
+    if (panel) panel.classList.toggle('hidden');
+}
+
+/* ================
+   Dynamic UI Building
+   ================ */
+function buildDynamicUI() {
+    const caps = deviceProfile.capabilities;
+    const maker = deviceProfile.maker;
+    const isAmmoload = (maker === 'Ammoload');
+
+    // --- Data Tiles (own row) + Sensor Tiles (rows below) ---
+    const tilesContainer = document.getElementById('componentTilesContainer');
+    let dataHTML = '';
+    let sensorHTML = '';
+
+    // Total Rounds (clickable with actions — +/- always shown)
+    dataHTML += `
+        <div class="data-tile" onclick="toggleTileActions('rounds')">
+            <div class="font-medium text-gray-400">Total Rounds</div>
+            <div id="totalCount" class="data-tile-value text-indigo-400 mt-1">--</div>
+            <div class="small-muted mt-1">Tap to adjust</div>
+            <div id="roundsActions" class="tile-actions hidden" onclick="event.stopPropagation()">
+                <button class="btn btn-sm btn-red" onclick="event.stopPropagation(); sendCommand('CMD=RESET_COUNT')">Reset</button>
+                <button class="btn btn-sm btn-green" onclick="event.stopPropagation(); sendCommand('CMD=COUNT_UP')">+1</button>
+                <button class="btn btn-sm btn-yellow" onclick="event.stopPropagation(); sendCommand('CMD=COUNT_DOWN')">-1</button>
+            </div>
+        </div>`;
+
+    // Powder Level (clickable with calibration)
+    if (caps.Powder) {
+        dataHTML += `
+        <div class="data-tile" onclick="toggleTileActions('powder')">
+            <div class="font-medium text-gray-400">Powder Level</div>
+            <div id="powderLevel" class="data-tile-value text-green-400 mt-1">--%</div>
+            <div class="small-muted mt-1">Tap to calibrate</div>
+            <div id="powderActions" class="tile-actions hidden" onclick="event.stopPropagation()">
+                <button class="btn btn-sm btn-blue" onclick="event.stopPropagation(); sendCommand('CMD=CAL_HIGH')">Cal Full</button>
+                <button class="btn btn-sm btn-yellow" onclick="event.stopPropagation(); sendCommand('CMD=CAL_LOW')">Cal Empty</button>
+            </div>
+        </div>`;
+    }
+
+    // Motor Status (data tile, next to powder)
+    if (caps.Mot) {
+        dataHTML += `
+        <div class="data-tile" id="motorTile">
+            <div class="font-medium text-gray-400">Motor</div>
+            <div id="motorStatusText" class="data-tile-value text-gray-400 mt-1">--</div>
+        </div>`;
+    }
+
+    // Sensor tiles (binary OK/LOW indicators)
+    for (const [field, info] of Object.entries(SENSOR_TILES)) {
+        if (caps[field]) {
+            sensorHTML += `
+            <div id="${info.id}Tile" class="status-tile status-tile-unknown">
+                <div class="font-medium">${info.label}</div>
+                <div id="${info.id}StatusText" class="text-2xl font-bold mt-2">--</div>
+            </div>`;
+        }
+    }
+
+    tilesContainer.innerHTML =
+        `<div class="grid-data-tiles">${dataHTML}</div>` +
+        (sensorHTML ? `<div class="grid-sensor-tiles">${sensorHTML}</div>` : '');
+
+    // Show component section
+    const componentSection = document.getElementById('componentSection');
+    if (componentSection) componentSection.classList.remove('hidden');
+
+    // --- Device Settings (in connection card) ---
+    const settingsContainer = document.getElementById('settingsContainer');
+    let settingsHTML = '';
+    for (const [field, info] of Object.entries(SETTINGS_MAP)) {
+        if (!caps[field]) continue;
+        if (info.type === 'toggle') {
+            settingsHTML += `
+            <div class="setting-row">
+                <div>
+                    <div class="font-semibold">${info.label}</div>
+                    ${info.desc ? `<div class="small-muted">${info.desc}</div>` : ''}
+                </div>
+                <input id="${info.inputId}" type="checkbox" class="checkbox-lg" onchange="updateSetting('${info.cmd}', this.checked ? 1 : 0)">
+            </div>`;
+        } else if (info.type === 'range') {
+            settingsHTML += `
+            <div>
+                <label class="font-semibold">${info.label}</label>
+                <input id="${info.inputId}" type="range" min="${info.min}" max="${info.max}" step="${info.step}" class="range-full" oninput="document.getElementById('dwellDurationValue').textContent = this.value" onchange="updateSetting('${info.cmd}', this.value)">
+                <div id="dwellDurationValue" class="small-muted mt-1">--</div>
+            </div>`;
+        }
+    }
+    settingsContainer.innerHTML = settingsHTML || '<p class="text-gray-500">No configurable settings for this device.</p>';
+
+    // Show settings toggle if there are settings
+    const settingsToggle = document.getElementById('deviceSettingsToggle');
+    if (settingsToggle && settingsHTML !== '') {
+        settingsToggle.classList.remove('hidden');
+    }
+
+    // Show mute button in header if device supports it
+    const muteBtn = document.getElementById('muteToggleBtn');
+    if (muteBtn && caps.Mute) muteBtn.classList.remove('hidden');
+
+    dynamicUIBuilt = true;
+}
+
+/* Re-query DOM elements after dynamic HTML is inserted */
+function rebindUIRefs() {
+    ui.totalCount = document.getElementById('totalCount');
+    ui.powderLevel = document.getElementById('powderLevel');
+
+    // Motor (data tile, not in SENSOR_TILES)
+    ui.motorTile = document.getElementById('motorTile');
+    ui.motorStatusText = document.getElementById('motorStatusText');
+
+    // Sensor tiles
+    for (const [field, info] of Object.entries(SENSOR_TILES)) {
+        ui[info.id + 'Tile'] = document.getElementById(info.id + 'Tile');
+        ui[info.id + 'StatusText'] = document.getElementById(info.id + 'StatusText');
+    }
+
+    // Settings
+    // Mute is now handled by header button, not settings panel
+    ui.dwellActiveToggle = document.getElementById('dwellActiveToggle');
+    ui.dwellDuration = document.getElementById('dwellDuration');
+    ui.dwellDurationValue = document.getElementById('dwellDurationValue');
+    ui.motorEnToggle = document.getElementById('motorEnToggle');
+}
+
+/* ================
+   Update UI based on parsed data (null-safe)
+   ================ */
 function updateUI(data) {
+    // Check for new critical alerts
+    checkCriticalAlerts(data);
+
     // Rounds
-    //if (data.Cnt !== undefined) ui.totalCount.textContent = data.Cnt;
-    //else ui.totalCount.textContent = '--';
-    // Inside updateUI(), after updating totalCount
-    if (data.Cnt !== undefined) {
-        ui.totalCount.textContent = data.Cnt;
-
-        // THIS IS THE KEY LINE — logs rounds when counter increases
-        if (activeRecipeId !== null && lastCount !== null && data.Cnt > lastCount) {
-            logCompletedRound(data.Cnt);
-        }
-        lastCount = data.Cnt;
-    } else {
-        ui.totalCount.textContent = '--';
-    }
-    // Powder percentage
-    if (data.Powder !== undefined) {
-        ui.powderLevel.textContent = `${data.Powder}%`;
-        if (data.Powder <= 5) {
-            ui.powderLevel.className = 'text-4xl font-extrabold text-red-400';
-        } else if (data.Powder < 20) {
-            ui.powderLevel.className = 'text-4xl font-extrabold text-yellow-400';
+    if (ui.totalCount) {
+        if (data.Cnt !== undefined) {
+            ui.totalCount.textContent = data.Cnt;
+            if (activeRecipeId !== null && lastCount !== null && data.Cnt > lastCount) {
+                logCompletedRound(data.Cnt);
+            }
+            lastCount = data.Cnt;
         } else {
-            ui.powderLevel.className = 'text-4xl font-extrabold text-green-400';
+            ui.totalCount.textContent = '--';
         }
-    } else {
-        ui.powderLevel.textContent = '--%';
-        ui.powderLevel.className = 'text-4xl font-extrabold text-white';
     }
 
-    // Components (1 = OK, 0 = LOW)
+    // Powder percentage
+    if (ui.powderLevel) {
+        if (data.Powder !== undefined) {
+            ui.powderLevel.textContent = `${data.Powder}%`;
+            if (data.Powder <= 5) {
+                ui.powderLevel.className = 'data-tile-value text-red-400 mt-1';
+            } else if (data.Powder < 20) {
+                ui.powderLevel.className = 'data-tile-value text-yellow-400 mt-1';
+            } else {
+                ui.powderLevel.className = 'data-tile-value text-green-400 mt-1';
+            }
+        } else {
+            ui.powderLevel.textContent = '--%';
+            ui.powderLevel.className = 'data-tile-value text-gray-400 mt-1';
+        }
+    }
+
+    // Generic sensor tile status
     function applyStatus(tileEl, textEl, val) {
+        if (!tileEl || !textEl) return;
         const displayVal = (val === 1) ? 'OK' : (val === 0 ? 'LOW!' : '--');
-        const cls = (val === 1) ? 'status-tile status-tile-ok p-4 rounded-xl' : (val === 0 ? 'status-tile status-tile-low p-4 rounded-xl' : 'status-tile status-tile-unknown p-4 rounded-xl');
+        const cls = (val === 1) ? 'status-tile status-tile-ok' : (val === 0 ? 'status-tile status-tile-low' : 'status-tile status-tile-unknown');
         tileEl.className = cls;
         textEl.textContent = displayVal;
     }
+
     applyStatus(ui.primerTile, ui.primerStatusText, data.Pri);
     applyStatus(ui.caseTile, ui.caseStatusText, data.Cas);
     applyStatus(ui.bulletTile, ui.bulletStatusText, data.Bul);
+    applyStatus(ui.caseobsTile, ui.caseobsStatusText, data.CaseObs);
+    applyStatus(ui.pdalignTile, ui.pdalignStatusText, data.PdAlign);
+    applyStatus(ui.powchkTile, ui.powchkStatusText, data.PowChk);
 
-    // System status: simple logic (critical if any component low OR powder <= 5)
-    let systemText = '--', systemClass = 'text-white';
-    const powderCritical = (data.Powder !== undefined && data.Powder <= 5);
-    const componentCritical = (data.Pri === 0 || data.Cas === 0 || data.Bul === 0);
-    if (!componentCritical && !powderCritical && data.Pri !== undefined) {
-        systemText = 'OK';
-        systemClass = 'text-green-400';
-    } else if (componentCritical || powderCritical) {
-        systemText = 'CRITICAL';
-        systemClass = 'text-red-400';
-    } else {
-        systemText = '--';
-        systemClass = 'text-white';
-    }
-    ui.systemStatusText.textContent = systemText;
-    ui.systemStatusText.className = `text-4xl font-extrabold ${systemClass}`;
-
-    // Motor (Mot: 0 stop, 1 FWD, 2 REV)
-    if (data.Mot !== undefined) {
-        if (data.Mot === 1) {
-            ui.motorStatusText.textContent = 'RUNNING (FWD)';
-            ui.motorTile.className = 'status-tile status-tile-ok p-4 rounded-xl';
-            ui.motorDisplay.textContent = 'RUNNING →';
-        } else if (data.Mot === 2) {
-            ui.motorStatusText.textContent = 'RUNNING (REV)';
-            ui.motorTile.className = 'status-tile status-tile-low p-4 rounded-xl';
-            ui.motorDisplay.textContent = 'RUNNING ←';
+    // Motor special handling (data tile)
+    if (ui.motorTile && ui.motorStatusText) {
+        if (data.Mot !== undefined) {
+            if (data.Mot === 1) {
+                ui.motorStatusText.textContent = 'FWD';
+                ui.motorStatusText.className = 'data-tile-value text-green-400 mt-1';
+            } else if (data.Mot === 2) {
+                ui.motorStatusText.textContent = 'REV';
+                ui.motorStatusText.className = 'data-tile-value text-red-400 mt-1';
+            } else {
+                ui.motorStatusText.textContent = 'IDLE';
+                ui.motorStatusText.className = 'data-tile-value text-gray-400 mt-1';
+            }
         } else {
-            ui.motorStatusText.textContent = 'IDLE';
-            ui.motorTile.className = 'status-tile status-tile-unknown p-4 rounded-xl';
-            ui.motorDisplay.textContent = 'IDLE';
+            ui.motorStatusText.textContent = '--';
+            ui.motorStatusText.className = 'data-tile-value text-gray-400 mt-1';
         }
-    } else {
-        ui.motorStatusText.textContent = '--';
-        ui.motorTile.className = 'status-tile status-tile-unknown p-4 rounded-xl';
-        ui.motorDisplay.textContent = '--';
     }
 
-    // Settings reflected from firmware:
+    // System status
+    if (ui.systemStatusText) {
+        let systemText = '--', systemClass = 'text-white';
+        const powderCritical = (data.Powder !== undefined && data.Powder <= 5);
+        const componentCritical = (data.Pri === 0 || data.Cas === 0 || data.Bul === 0);
+        const extraCritical = (data.CaseObs === 0 || data.PdAlign === 0 || data.PowChk === 0);
+        if (!componentCritical && !powderCritical && !extraCritical && data.Pri !== undefined) {
+            systemText = 'OK';
+            systemClass = 'text-green-400';
+        } else if (componentCritical || powderCritical || extraCritical) {
+            systemText = 'CRITICAL';
+            systemClass = 'text-red-400';
+        }
+        ui.systemStatusText.textContent = systemText;
+        ui.systemStatusText.className = `system-status-value ${systemClass}`;
+    }
+
+    // Settings reflected from firmware
     const now = Date.now();
     const debounce = 300;
-    
-    if (data.Mute !== undefined && (now - lastUserSettingChange > debounce || ui.muteToggle.checked !== !!data.Mute)) {
-        ui.muteToggle.checked = !!data.Mute;
+    if (data.Mute !== undefined && (now - lastUserSettingChange > debounce)) {
+        isMuted = !!data.Mute;
+        updateMuteButton();
     }
-    if (data.DwellAct !== undefined && (now - lastUserSettingChange > debounce || ui.dwellActiveToggle.checked !== !!data.DwellAct)) {
+    if (ui.dwellActiveToggle && data.DwellAct !== undefined && (now - lastUserSettingChange > debounce || ui.dwellActiveToggle.checked !== !!data.DwellAct)) {
         ui.dwellActiveToggle.checked = !!data.DwellAct;
     }
-    if (data.MotorEn !== undefined && (now - lastUserSettingChange > debounce || ui.motorEnToggle.checked !== !!data.MotorEn)) {
+    if (ui.motorEnToggle && data.MotorEn !== undefined && (now - lastUserSettingChange > debounce || ui.motorEnToggle.checked !== !!data.MotorEn)) {
         ui.motorEnToggle.checked = !!data.MotorEn;
     }
-    if (data.DwellDur !== undefined && (now - lastUserSettingChange > debounce || ui.dwellDuration.value != data.DwellDur)) {
+    if (ui.dwellDuration && ui.dwellDurationValue && data.DwellDur !== undefined && (now - lastUserSettingChange > debounce || ui.dwellDuration.value != data.DwellDur)) {
         ui.dwellDuration.value = data.DwellDur;
         ui.dwellDurationValue.textContent = data.DwellDur;
     }
@@ -182,6 +475,7 @@ function updateUI(data) {
 /* Show feedback message temporarily */
 let feedbackTimer = null;
 function showMessage(msg, type='info') {
+    if (!ui.commandFeedback) return;
     ui.commandFeedback.textContent = msg;
     ui.commandFeedback.style.opacity = 1;
     ui.commandFeedback.className = (type === 'error') ? 'text-red-400 small-muted' : 'text-green-400 small-muted';
@@ -191,119 +485,94 @@ function showMessage(msg, type='info') {
     }, 2500);
 }
 
-/* Enable/disable command buttons when not connected */
-function setCommandButtonsEnabled(enabled) {
-    ui.resetCountBtn.disabled = !enabled;
-    ui.calHighBtn.disabled   = !enabled;
-    ui.calLowBtn.disabled    = !enabled;
-    ui.resetCountBtn.classList.toggle('opacity-50', !enabled);
-    ui.calHighBtn.classList.toggle('opacity-50', !enabled);
-    ui.calLowBtn.classList.toggle('opacity-50', !enabled);
-}
-
-/* SEND COMMAND string to Command Characteristic
-   Uses writeValueWithoutResponse for responsiveness (firmware expects WRITE or WRITE_NR)
-*/
+/* SEND COMMAND */
 async function sendCommand(commandString) {
     if (!commandCharacteristic) {
         showMessage("Not connected", "error");
-        console.error("Command char missing");
         return;
     }
     try {
         const encoder = new TextEncoder();
         const data = encoder.encode(commandString);
-        // Prefer writeValueWithoutResponse if supported
         if (commandCharacteristic.properties.writeWithoutResponse) {
             await commandCharacteristic.writeValueWithoutResponse(data);
         } else {
             await commandCharacteristic.writeValue(data);
         }
         showMessage(`Sent: ${commandString}`);
-        console.log("Sent command:", commandString);
     } catch (err) {
         console.error("sendCommand error:", err);
         showMessage("Send failed", "error");
     }
 }
 
-/* Convenience wrapper for setting named configuration via BLE.
-   Firmware expects: CMD=SET_<SETTINGNAME>_<VALUE>
-   Example: CMD=SET_MUTE_1
-*/
+/* Settings wrapper */
 let lastUserSettingChange = 0;
-
 function updateSetting(name, value) {
     const v = parseInt(value, 10);
     if (Number.isNaN(v)) return;
     sendCommand(`CMD=SET_${name}_${v}`);
-
-    // Optimistic update
-    if (name === 'MUTE') ui.muteToggle.checked = !!v;
-    if (name === 'DWELL_ACTIVE') ui.dwellActiveToggle.checked = !!v;
-    if (name === 'MOTOR_EN') ui.motorEnToggle.checked = !!v;
-    if (name === 'DWELL_DUR') {
+    if (name === 'MUTE') { isMuted = !!v; updateMuteButton(); }
+    if (name === 'DWELL_ACTIVE' && ui.dwellActiveToggle) ui.dwellActiveToggle.checked = !!v;
+    if (name === 'MOTOR_EN' && ui.motorEnToggle) ui.motorEnToggle.checked = !!v;
+    if (name === 'DWELL_DUR' && ui.dwellDuration && ui.dwellDurationValue) {
         ui.dwellDuration.value = v;
         ui.dwellDurationValue.textContent = v;
     }
-
     lastUserSettingChange = Date.now();
 }
 
-/* BLE connect/disconnect logic */
+/* BLE connect */
 async function connectBLE() {
     if (!navigator.bluetooth) {
         showMessage("Web Bluetooth not supported", "error");
-        ui.connectionStatus.textContent = "Status: Web Bluetooth not supported in this browser.";
+        if (ui.connectionStatus) ui.connectionStatus.textContent = "Status: Web Bluetooth not supported in this browser.";
         return;
     }
-
     try {
-        ui.connectionStatus.textContent = "Status: Scanning...";
-        ui.connectionStatus.classList.remove('text-red-400');
-        ui.connectionStatus.classList.add('text-yellow-400');
-        setCommandButtonsEnabled(false);
+        if (ui.connectionStatus) {
+            ui.connectionStatus.textContent = "Status: Scanning...";
+            ui.connectionStatus.classList.remove('text-red-400');
+            ui.connectionStatus.classList.add('text-yellow-400');
+        }
 
         bleDevice = await navigator.bluetooth.requestDevice({
             filters: [{ services: [SERVICE_UUID] }],
             optionalServices: [SERVICE_UUID]
         });
 
-        ui.deviceInfo.textContent = `BLE Device: ${bleDevice.name || 'Unknown'}`;
-        ui.connectionStatus.textContent = "Status: Connecting...";
+        if (ui.deviceInfo) ui.deviceInfo.textContent = `BLE Device: ${bleDevice.name || 'Unknown'}`;
+        if (ui.connectionStatus) ui.connectionStatus.textContent = "Status: Connecting...";
 
         bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
 
         gattServer = await bleDevice.gatt.connect();
         const service = await gattServer.getPrimaryService(SERVICE_UUID);
-
-        // Characteristics
         commandCharacteristic = await service.getCharacteristic(COMMAND_CHARACTERISTIC_UUID);
         dataCharacteristic = await service.getCharacteristic(DATA_CHARACTERISTIC_UUID);
 
-        // Subscribe to notifications
         if (dataCharacteristic.properties.notify) {
             await dataCharacteristic.startNotifications();
             dataCharacteristic.addEventListener('characteristicvaluechanged', handleCharacteristicUpdates);
         }
 
-        ui.connectionStatus.textContent = "Status: Connected";
-        ui.connectionStatus.classList.remove('text-yellow-400');
-        ui.connectionStatus.classList.remove('text-red-400');
-        ui.connectionStatus.classList.add('text-green-400');
+        if (ui.connectionStatus) {
+            ui.connectionStatus.textContent = "Status: Connected";
+            ui.connectionStatus.classList.remove('text-yellow-400', 'text-red-400');
+            ui.connectionStatus.classList.add('text-green-400');
+        }
+        if (ui.connectButton) ui.connectButton.classList.add('hidden');
+        if (ui.disconnectButton) ui.disconnectButton.classList.remove('hidden');
 
-        ui.connectButton.classList.add('hidden');
-        ui.disconnectButton.classList.remove('hidden');
-
-        setCommandButtonsEnabled(true);
         showMessage("Connected", "info");
     } catch (err) {
         console.error("connectBLE error:", err);
-        ui.connectionStatus.textContent = `Status: Conn failed (${err && err.name ? err.name : 'error'})`;
-        ui.connectionStatus.classList.remove('text-yellow-400');
-        ui.connectionStatus.classList.add('text-red-400');
-        ui.deviceInfo.textContent = 'BLE Device: N/A';
-        setCommandButtonsEnabled(false);
+        if (ui.connectionStatus) {
+            ui.connectionStatus.textContent = `Status: Conn failed (${err && err.name ? err.name : 'error'})`;
+            ui.connectionStatus.classList.remove('text-yellow-400');
+            ui.connectionStatus.classList.add('text-red-400');
+        }
+        if (ui.deviceInfo) ui.deviceInfo.textContent = 'BLE Device: N/A';
         showMessage("Connection failed", "error");
     }
 }
@@ -311,31 +580,48 @@ async function connectBLE() {
 function disconnectBLE() {
     if (bleDevice && bleDevice.gatt.connected) {
         bleDevice.gatt.disconnect();
-    } else {
-        console.log("No device connected");
     }
 }
 
 /* On disconnect */
 function onDisconnected() {
     console.log("Device disconnected");
-    ui.connectionStatus.textContent = "Status: Disconnected";
-    ui.connectionStatus.classList.remove('text-green-400');
-    ui.connectionStatus.classList.add('text-red-400');
+    if (ui.connectionStatus) {
+        ui.connectionStatus.textContent = "Status: Disconnected";
+        ui.connectionStatus.classList.remove('text-green-400');
+        ui.connectionStatus.classList.add('text-red-400');
+    }
+    if (ui.connectButton) ui.connectButton.classList.remove('hidden');
+    if (ui.disconnectButton) ui.disconnectButton.classList.add('hidden');
 
-    ui.connectButton.classList.remove('hidden');
-    ui.disconnectButton.classList.add('hidden');
-    setCommandButtonsEnabled(false);
+    // Reset system status
+    if (ui.systemStatusText) {
+        ui.systemStatusText.textContent = '--';
+        ui.systemStatusText.className = 'system-status-value text-white';
+    }
 
-    // Reset UI placeholders
-    ui.totalCount.textContent = '--';
-    ui.powderLevel.textContent = '--%';
-    ui.systemStatusText.textContent = '--';
-    ui.primerStatusText.textContent = '--';
-    ui.caseStatusText.textContent = '--';
-    ui.bulletStatusText.textContent = '--';
-    ui.motorStatusText.textContent = '--';
-    ui.motorDisplay.textContent = '--';
+    // Reset device profile
+    deviceProfile = { maker: null, api: null, identified: false, capabilities: {} };
+    dynamicUIBuilt = false;
+
+    // Clear dynamic containers
+    const tiles = document.getElementById('componentTilesContainer');
+    const settings = document.getElementById('settingsContainer');
+    if (tiles) tiles.innerHTML = '';
+    if (settings) settings.innerHTML = '';
+
+    // Hide mute button
+    const muteBtn = document.getElementById('muteToggleBtn');
+    if (muteBtn) muteBtn.classList.add('hidden');
+    isMuted = false;
+
+    // Hide sections
+    const componentSection = document.getElementById('componentSection');
+    if (componentSection) componentSection.classList.add('hidden');
+    const settingsToggle = document.getElementById('deviceSettingsToggle');
+    const settingsPanel = document.getElementById('deviceSettingsPanel');
+    if (settingsToggle) settingsToggle.classList.add('hidden');
+    if (settingsPanel) settingsPanel.classList.add('hidden');
 }
 
 /* Handle incoming notifications */
@@ -344,50 +630,48 @@ function handleCharacteristicUpdates(event) {
         const value = event.target.value;
         const decoder = new TextDecoder('utf-8');
         const raw = decoder.decode(value);
-        // console.log("BLE RX:", raw);
         const parsed = parseData(raw);
+
+        if (!deviceProfile.identified && identifyDevice(parsed)) return;
+
+        if (!dynamicUIBuilt) {
+            detectCapabilities(parsed);
+            buildDynamicUI();
+            rebindUIRefs();
+        }
+
         updateUI(parsed);
     } catch (e) {
         console.error("characteristic update error:", e);
     }
 }
 
-/* Initialize tab buttons (simple tab system) */
-(function initTabs() {
-    const tabBtns = document.querySelectorAll('.tab-btn');
-    tabBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            tabBtns.forEach(b=> b.classList.remove('active'));
-            btn.classList.add('active');
-
-            const target = btn.getAttribute('data-tab');
-            document.querySelectorAll('.tab').forEach(t => t.classList.add('hidden'));
-            const tabEl = document.getElementById(`tab-${target}`);
-            if (tabEl) tabEl.classList.remove('hidden');
-        });
-    });
-    // Activate commands tab by default
-    const first = document.querySelector('.tab-btn');
-    if (first) first.click();
-})();
-
-/* On load: disable buttons if no bluetooth, try to reflect initial UI */
+/* On load */
 window.addEventListener('load', () => {
+    bindStaticUI();
+    applyStoredTheme();
+    // Restore view toggle state
+    const storedView = localStorage.getItem('recipe_view_mode') || 'cards';
+    recipeViewMode = storedView;
+    const cardsBtn = document.getElementById('viewCardsBtn');
+    const tableBtn = document.getElementById('viewTableBtn');
+    if (cardsBtn) cardsBtn.classList.toggle('active', storedView === 'cards');
+    if (tableBtn) tableBtn.classList.toggle('active', storedView === 'table');
+
     if (!('bluetooth' in navigator)) {
-        ui.connectButton.disabled = true;
-        ui.connectButton.textContent = "BLE Not Supported";
-        ui.connectionStatus.textContent = "Status: BLE Not Supported";
+        if (ui.connectButton) {
+            ui.connectButton.disabled = true;
+            ui.connectButton.textContent = "BLE Not Supported";
+        }
+        if (ui.connectionStatus) {
+            ui.connectionStatus.textContent = "Status: BLE Not Supported";
+        }
     }
-    setCommandButtonsEnabled(false);
-    // defaults
-    ui.dwellDurationValue.textContent = ui.dwellDuration.value || '--';
 });
 
-/* Optional: convenience keyboard shortcuts for debugging (ctrl+shift+c to connect) */
+/* Keyboard shortcut */
 window.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.shiftKey && e.code === 'KeyC') {
-        connectBLE();
-    }
+    if (e.ctrlKey && e.shiftKey && e.code === 'KeyC') connectBLE();
 });
 
 /* ==================== LOAD RECIPES SYSTEM ==================== */
@@ -411,77 +695,200 @@ function saveRecipes() {
 function saveOptions() {
     localStorage.setItem(OPTIONS_KEY, JSON.stringify(options));
     closeOptionsModal();
-    renderRecipes(); // Refresh table with new options
+    renderRecipes();
     showMessage("Options updated!", "info");
 }
 
+/* ==================== RECIPE RENDERING ==================== */
 function renderRecipes(filter = '') {
     currentFilter = filter.toLowerCase();
-    const tbody = document.getElementById('recipesBody');
-    tbody.innerHTML = '';
+    const container = document.getElementById('recipesContainer');
+    container.innerHTML = '';
 
-    let filteredRecipes = recipes.filter(recipe => {
-        const str = JSON.stringify(recipe).toLowerCase();
-        return str.includes(currentFilter);
-    });
+    let filtered = recipes.filter(r => JSON.stringify(r).toLowerCase().includes(currentFilter));
+    filtered.sort((a, b) => a.id - b.id);
 
-    filteredRecipes.sort((a, b) => a.id - b.id);
+    if (filtered.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-center mt-4">No recipes found. Click "+ Add Recipe" to create one.</p>';
+        updateActiveLoadDisplay();
+        renderSessionLog();
+        return;
+    }
 
-    filteredRecipes.forEach(recipe => {
-        const isActive = activeRecipeId === recipe.id;
-        const tr = document.createElement('tr');
-        tr.className = `border-t border-gray-700 hover:bg-gray-700/50 ${isActive ? 'bg-indigo-900/30 ring-2 ring-indigo-500' : ''}`;
-        tr.innerHTML = `
-        <td class="px-3 py-2">${recipe.id}</td>
-        <td class="px-3 py-2">
-            <select class="bg-gray-800 rounded px-1 py-0.5 text-sm w-full" onchange="updateRecipe(${recipe.id}, 'caliber', this.value)">${optionsHtml(options.caliber, recipe.caliber)}</select>
-        </td>
-        <td class="px-3 py-2">
-            <input type="text" maxlength="200" class="bg-gray-800 rounded px-1 py-0.5 text-sm w-full" value="${escapeHtml(recipe.notes || '')}" onchange="updateRecipe(${recipe.id}, 'notes', this.value)">
-        </td>
-        <td class="px-3 py-2 text-xs">
-            <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'caseMfg', this.value)">${optionsHtml(options.mfg, recipe.caseMfg)}</select><br>
-            <input type="number" step="0.001" placeholder="Length" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.caseLength || ''}" onchange="updateRecipe(${recipe.id}, 'caseLength', this.value)">
-            <input type="number" step="0.001" placeholder="OAL" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.caseOal || ''}" onchange="updateRecipe(${recipe.id}, 'caseOal', this.value)">
-        </td>
-        <td class="px-3 py-2 text-xs">
-            <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'primerMfg', this.value)">${optionsHtml(options.mfg, recipe.primerMfg)}</select><br>
-            <select class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" onchange="updateRecipe(${recipe.id}, 'primerType', this.value)">${optionsHtml(options.primerType, recipe.primerType)}</select>
-        </td>
-        <td class="px-3 py-2 text-xs">
-            <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'bulletMfg', this.value)">${optionsHtml(options.mfg, recipe.bulletMfg)}</select><br>
-            <input type="text" maxlength="50" placeholder="Type" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${escapeHtml(recipe.bulletType || '')}" onchange="updateRecipe(${recipe.id}, 'bulletType', this.value)">
-            <input type="number" placeholder="Grain" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.bulletGrain || ''}" onchange="updateRecipe(${recipe.id}, 'bulletGrain', this.value); recalcPF(${recipe.id})">
-        </td>
-        <td class="px-3 py-2 text-xs">
-            <select class="bg-gray-800 rounded px-1 py-0.5 w-full" onchange="updateRecipe(${recipe.id}, 'powderMfg', this.value)">${optionsHtml(options.mfg, recipe.powderMfg)}</select><br>
-            <input type="text" maxlength="50" placeholder="Type" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${escapeHtml(recipe.powderType || '')}" onchange="updateRecipe(${recipe.id}, 'powderType', this.value)">
-            <input type="number" step="0.1" placeholder="Grains" class="bg-gray-800 rounded px-1 py-0.5 mt-1 w-full" value="${recipe.powderGrain || ''}" onchange="updateRecipe(${recipe.id}, 'powderGrain', this.value)">
-        </td>
-        <td class="px-3 py-2">
-            <input type="text" maxlength="20" class="bg-gray-800 rounded px-1 py-0.5 w-20" value="${escapeHtml(recipe.firearm || '')}" onchange="updateRecipe(${recipe.id}, 'firearm', this.value)">
-        </td>
-        <td class="px-3 py-2">
-            <input type="number" max="9999" class="bg-gray-800 rounded px-1 py-0.5 w-20" value="${recipe.fps || ''}" onchange="updateRecipe(${recipe.id}, 'fps', this.value); recalcPF(${recipe.id})">
-        </td>
-        <td class="px-3 py-2 font-bold text-yellow-400" id="pf-${recipe.id}">${calculatePF(recipe.bulletGrain, recipe.fps)}</td>
-        <td class="px-3 py-2 text-right text-sm">
-            <span class="font-medium text-green-400">${(recipe.lifetimeTotal || 0).toLocaleString()}</span>
-        </td>
-        <td class="px-3 py-2 text-center whitespace-nowrap">
-            ${isActive 
-                ? '<span class="text-green-400 font-bold">ACTIVE</span>'
-                : `<button onclick="setActiveLoad(${recipe.id})" class="text-indigo-400 hover:text-indigo-300 text-xs font-medium">Set Active</button>`
-            }
-            <button onclick="duplicateRecipe(${recipe.id})" class="text-green-400 hover:text-green-300 text-xs ml-3">Dup</button>
-            <button onclick="deleteRecipe(${recipe.id})" class="text-red-400 hover:text-red-300 text-xs ml-3">Del</button>
-        </td>
-    `;
-        tbody.appendChild(tr);
-    });
+    if (recipeViewMode === 'table') {
+        renderRecipesTable(filtered, container);
+    } else {
+        renderRecipesCards(filtered, container);
+    }
 
     updateActiveLoadDisplay();
     renderSessionLog();
+}
+
+function renderRecipesTable(filtered, container) {
+    const html = `
+        <div class="overflow-x-auto">
+        <table class="recipe-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Caliber</th>
+                    <th>Notes</th>
+                    <th>Bullet</th>
+                    <th>Powder</th>
+                    <th>Primer</th>
+                    <th>Case</th>
+                    <th>FPS</th>
+                    <th>PF</th>
+                    <th>Loaded</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                ${filtered.map(r => {
+                    const isActive = activeRecipeId === r.id;
+                    const pf = calculatePF(r.bulletGrain, r.fps);
+                    const bullet = [r.bulletMfg, r.bulletType, r.bulletGrain ? r.bulletGrain + 'gr' : ''].filter(Boolean).join(' ');
+                    const powder = [r.powderMfg, r.powderType, r.powderGrain ? r.powderGrain + 'gr' : ''].filter(Boolean).join(' ');
+                    const primer = [r.primerMfg, r.primerType].filter(Boolean).join(' ');
+                    const casInfo = [r.caseMfg, r.caseLength, r.caseOal].filter(Boolean).join(' / ');
+                    return `
+                    <tr class="${isActive ? 'recipe-row-active' : ''}" style="cursor:pointer" onclick="toggleRecipeDetail(${r.id})">
+                        <td>${r.id}</td>
+                        <td class="font-semibold whitespace-nowrap">${escapeHtml(r.caliber || '')}</td>
+                        <td>${escapeHtml(r.notes || '')}</td>
+                        <td>${escapeHtml(bullet) || '--'}</td>
+                        <td>${escapeHtml(powder) || '--'}</td>
+                        <td>${escapeHtml(primer) || '--'}</td>
+                        <td>${escapeHtml(casInfo) || '--'}</td>
+                        <td class="text-center">${r.fps || '--'}</td>
+                        <td class="text-center font-bold">${pf}</td>
+                        <td class="text-center">${(r.lifetimeTotal || 0).toLocaleString()}</td>
+                        <td class="whitespace-nowrap">
+                            ${!isActive
+                                ? `<button onclick="event.stopPropagation(); setActiveLoad(${r.id})" class="btn btn-sm btn-indigo">Active</button>`
+                                : '<span class="recipe-active-badge">Active</span>'
+                            }
+                            <button onclick="event.stopPropagation(); deleteRecipe(${r.id})" class="btn btn-sm btn-red">Del</button>
+                        </td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>
+        </div>`;
+    container.innerHTML = html;
+}
+
+function renderRecipesCards(filtered, container) {
+    filtered.forEach(recipe => {
+        const isActive = activeRecipeId === recipe.id;
+        const isExpanded = expandedRecipes.has(recipe.id);
+        const pf = calculatePF(recipe.bulletGrain, recipe.fps);
+
+        const parts = [];
+        if (recipe.bulletMfg || recipe.bulletType || recipe.bulletGrain) {
+            parts.push([recipe.bulletMfg, recipe.bulletType, recipe.bulletGrain ? recipe.bulletGrain + 'gr' : ''].filter(Boolean).join(' '));
+        }
+        if (recipe.powderMfg || recipe.powderType || recipe.powderGrain) {
+            parts.push([recipe.powderMfg, recipe.powderType, recipe.powderGrain ? recipe.powderGrain + 'gr' : ''].filter(Boolean).join(' '));
+        }
+        if (recipe.primerMfg || recipe.primerType) {
+            parts.push([recipe.primerMfg, recipe.primerType].filter(Boolean).join(' '));
+        }
+        const quickInfo = parts.join('  &bull;  ') || 'No component data';
+
+        const card = document.createElement('div');
+        card.className = `recipe-card${isActive ? ' recipe-card-active' : ''}`;
+        card.innerHTML = `
+            <div class="recipe-summary" onclick="toggleRecipeDetail(${recipe.id})">
+                <div>
+                    <div class="recipe-header">
+                        <span class="recipe-id">#${recipe.id}</span>
+                        <span class="recipe-caliber">${escapeHtml(recipe.caliber || 'No caliber')}</span>
+                        ${isActive ? '<span class="recipe-active-badge">Active</span>' : ''}
+                    </div>
+                    ${recipe.notes ? `<div class="recipe-notes">${escapeHtml(recipe.notes)}</div>` : ''}
+                    <div class="recipe-quick-info">${quickInfo}</div>
+                    <div class="recipe-meta">
+                        ${recipe.firearm ? `<span>${escapeHtml(recipe.firearm)}</span>` : ''}
+                        ${recipe.fps ? `<span>${recipe.fps} fps</span>` : ''}
+                        <span class="recipe-lifetime">${(recipe.lifetimeTotal || 0).toLocaleString()} loaded</span>
+                    </div>
+                </div>
+                <div>
+                    <span class="recipe-pf" id="pf-${recipe.id}">${pf !== '--' ? 'PF ' + pf : ''}</span>
+                </div>
+            </div>
+            <div class="recipe-detail ${isExpanded ? '' : 'hidden'}" id="recipe-detail-${recipe.id}">
+                <div class="recipe-form">
+                    <div class="recipe-field">
+                        <label>Caliber</label>
+                        <select class="input-cell" onchange="updateRecipe(${recipe.id}, 'caliber', this.value)">${optionsHtml(options.caliber, recipe.caliber)}</select>
+                    </div>
+                    <div class="recipe-field">
+                        <label>Notes</label>
+                        <input type="text" maxlength="200" class="input-cell" value="${escapeHtml(recipe.notes || '')}" onchange="updateRecipe(${recipe.id}, 'notes', this.value)">
+                    </div>
+                    <div class="recipe-field">
+                        <label>Case (MFG / Length / OAL)</label>
+                        <div class="recipe-field-inputs">
+                            <select class="input-cell" onchange="updateRecipe(${recipe.id}, 'caseMfg', this.value)">${optionsHtml(options.mfg, recipe.caseMfg)}</select>
+                            <input type="number" step="0.001" placeholder="Length" class="input-cell" value="${recipe.caseLength || ''}" onchange="updateRecipe(${recipe.id}, 'caseLength', this.value)">
+                            <input type="number" step="0.001" placeholder="OAL" class="input-cell" value="${recipe.caseOal || ''}" onchange="updateRecipe(${recipe.id}, 'caseOal', this.value)">
+                        </div>
+                    </div>
+                    <div class="recipe-field">
+                        <label>Primer (MFG / Type)</label>
+                        <div class="recipe-field-inputs">
+                            <select class="input-cell" onchange="updateRecipe(${recipe.id}, 'primerMfg', this.value)">${optionsHtml(options.mfg, recipe.primerMfg)}</select>
+                            <select class="input-cell" onchange="updateRecipe(${recipe.id}, 'primerType', this.value)">${optionsHtml(options.primerType, recipe.primerType)}</select>
+                        </div>
+                    </div>
+                    <div class="recipe-field">
+                        <label>Bullet (MFG / Type / Grain)</label>
+                        <div class="recipe-field-inputs">
+                            <select class="input-cell" onchange="updateRecipe(${recipe.id}, 'bulletMfg', this.value)">${optionsHtml(options.mfg, recipe.bulletMfg)}</select>
+                            <input type="text" maxlength="50" placeholder="Type" class="input-cell" value="${escapeHtml(recipe.bulletType || '')}" onchange="updateRecipe(${recipe.id}, 'bulletType', this.value)">
+                            <input type="number" placeholder="Grain" class="input-cell" value="${recipe.bulletGrain || ''}" onchange="updateRecipe(${recipe.id}, 'bulletGrain', this.value); recalcPF(${recipe.id})">
+                        </div>
+                    </div>
+                    <div class="recipe-field">
+                        <label>Powder (MFG / Type / Grains)</label>
+                        <div class="recipe-field-inputs">
+                            <select class="input-cell" onchange="updateRecipe(${recipe.id}, 'powderMfg', this.value)">${optionsHtml(options.mfg, recipe.powderMfg)}</select>
+                            <input type="text" maxlength="50" placeholder="Type" class="input-cell" value="${escapeHtml(recipe.powderType || '')}" onchange="updateRecipe(${recipe.id}, 'powderType', this.value)">
+                            <input type="number" step="0.1" placeholder="Grains" class="input-cell" value="${recipe.powderGrain || ''}" onchange="updateRecipe(${recipe.id}, 'powderGrain', this.value)">
+                        </div>
+                    </div>
+                    <div class="recipe-field">
+                        <label>Firearm / FPS</label>
+                        <div class="recipe-field-inputs">
+                            <input type="text" maxlength="20" placeholder="Firearm" class="input-cell" value="${escapeHtml(recipe.firearm || '')}" onchange="updateRecipe(${recipe.id}, 'firearm', this.value)">
+                            <input type="number" max="9999" placeholder="FPS" class="input-cell" value="${recipe.fps || ''}" onchange="updateRecipe(${recipe.id}, 'fps', this.value); recalcPF(${recipe.id})">
+                        </div>
+                    </div>
+                </div>
+                <div class="recipe-actions">
+                    ${!isActive
+                        ? `<button onclick="setActiveLoad(${recipe.id})" class="btn btn-sm btn-indigo">Set Active</button>`
+                        : '<span class="text-green-400 font-bold text-sm">Currently Active</span>'
+                    }
+                    <button onclick="duplicateRecipe(${recipe.id})" class="btn btn-sm btn-green">Duplicate</button>
+                    <button onclick="deleteRecipe(${recipe.id})" class="btn btn-sm btn-red">Delete</button>
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+function toggleRecipeDetail(id) {
+    if (expandedRecipes.has(id)) {
+        expandedRecipes.delete(id);
+    } else {
+        expandedRecipes.add(id);
+    }
+    renderRecipes(currentFilter);
 }
 
 function filterRecipes(query) {
@@ -501,16 +908,13 @@ function escapeHtml(text) {
 function updateRecipe(id, field, value) {
     const recipe = recipes.find(r => r.id === id);
     if (!recipe) return;
-
-    // Handle number fields properly (convert empty string to empty, not "0")
     if (['caseLength', 'caseOal', 'bulletGrain', 'powderGrain', 'fps'].includes(field)) {
         recipe[field] = value === '' ? '' : parseFloat(value);
     } else {
         recipe[field] = value;
     }
-
     saveRecipes();
-    recalcPF(id); // Update PF if bullet weight or FPS changed
+    recalcPF(id);
 }
 
 function recalcPF(id) {
@@ -518,7 +922,7 @@ function recalcPF(id) {
     if (!recipe) return;
     const pf = calculatePF(recipe.bulletGrain, recipe.fps);
     const pfEl = document.getElementById(`pf-${id}`);
-    if (pfEl) pfEl.textContent = pf;
+    if (pfEl) pfEl.textContent = pf !== '--' ? 'PF ' + pf : '';
 }
 
 function calculatePF(grain, fps) {
@@ -536,9 +940,10 @@ function addNewRecipe() {
         bulletMfg: '', bulletType: '', bulletGrain: '',
         powderMfg: '', powderType: '', powderGrain: '',
         firearm: '', fps: '',
-        lifetimeTotal: 0  // ← important!
+        lifetimeTotal: 0
     };
     recipes.push(newRecipe);
+    expandedRecipes.add(newRecipe.id); // auto-expand new recipe
     saveRecipes();
     renderRecipes(currentFilter);
 }
@@ -556,6 +961,7 @@ function duplicateRecipe(id) {
 function deleteRecipe(id) {
     if (confirm(`Delete recipe ID ${id}?`)) {
         recipes = recipes.filter(r => r.id !== id);
+        expandedRecipes.delete(id);
         nextId = Math.max(nextId, Math.max(...recipes.map(r => r.id)) + 1, 1);
         saveRecipes();
         renderRecipes(currentFilter);
@@ -586,7 +992,7 @@ function importRecipes(event) {
             saveRecipes();
             renderRecipes(currentFilter);
             showMessage("Recipes imported successfully!", "info");
-            document.getElementById('importFile').value = ''; // Reset file input
+            document.getElementById('importFile').value = '';
         } catch (err) {
             alert("Import failed: " + err.message);
         }
@@ -594,66 +1000,47 @@ function importRecipes(event) {
     reader.readAsText(file);
 }
 
-// Print View
+// Print View (keeps table format for printing)
 function openPrintView() {
     const modal = document.getElementById('printModal');
     const container = document.getElementById('printTableContainer');
-
-    // Sort by ID for clean printout
     const sortedRecipes = [...recipes].sort((a, b) => a.id - b.id);
 
     container.innerHTML = `
-        <table class="w-full border-collapse border-2 border-black">
+        <table class="print-table">
             <thead>
-                <tr class="bg-gray-200 text-black">
-                    <th class="border border-black px-4 py-3 text-left">ID</th>
-                    <th class="border border-black px-4 py-3 text-left">Caliber</th>
-                    <th class="border border-black px-4 py-3 text-left">Notes</th>
-                    <th class="border border-black px-4 py-3 text-left">Case<br><small>MFG / Length / OAL</small></th>
-                    <th class="border border-black px-4 py-3 text-left">Primer<br><small>MFG / Type</small></th>
-                    <th class="border border-black px-4 py-3 text-left">Bullet<br><small>MFG / Type / Grain</small></th>
-                    <th class="border border-black px-4 py-3 text-left">Powder<br><small>MFG / Type / Grains</small></th>
-                    <th class="border border-black px-4 py-3 text-left">Firearm</th>
-                    <th class="border border-black px-4 py-3 text-left">FPS</th>
-                    <th class="border border-black px-4 py-3 text-left font-bold">PF</th>
+                <tr>
+                    <th>ID</th>
+                    <th>Caliber</th>
+                    <th>Notes</th>
+                    <th>Case<br><small>MFG / Length / OAL</small></th>
+                    <th>Primer<br><small>MFG / Type</small></th>
+                    <th>Bullet<br><small>MFG / Type / Grain</small></th>
+                    <th>Powder<br><small>MFG / Type / Grains</small></th>
+                    <th>Firearm</th>
+                    <th>FPS</th>
+                    <th class="font-bold">PF</th>
                 </tr>
             </thead>
             <tbody>
                 ${sortedRecipes.map(r => `
-                    <tr class="even:bg-gray-50">
-                        <td class="border border-black px-4 py-3 align-top">${r.id}</td>
-                        <td class="border border-black px-4 py-3 align-top">${escapeHtml(r.caliber || '')}</td>
-                        <td class="border border-black px-4 py-3 align-top max-w-48">${escapeHtml(r.notes || '')}</td>
-                        <td class="border border-black px-4 py-3 align-top text-sm">
-                            ${escapeHtml(r.caseMfg || '')}<br>
-                            ${r.caseLength || ''} / ${r.caseOal || ''}
-                        </td>
-                        <td class="border border-black px-4 py-3 align-top text-sm">
-                            ${escapeHtml(r.primerMfg || '')}<br>
-                            ${escapeHtml(r.primerType || '')}
-                        </td>
-                        <td class="border border-black px-4 py-3 align-top text-sm">
-                            ${escapeHtml(r.bulletMfg || '')}<br>
-                            ${escapeHtml(r.bulletType || '')} / ${r.bulletGrain || ''}
-                        </td>
-                        <td class="border border-black px-4 py-3 align-top text-sm">
-                            ${escapeHtml(r.powderMfg || '')}<br>
-                            ${escapeHtml(r.powderType || '')} / ${r.powderGrain || ''}
-                        </td>
-                        <td class="border border-black px-4 py-3 align-top">${escapeHtml(r.firearm || '')}</td>
-                        <td class="border border-black px-4 py-3 align-top text-center">${r.fps || ''}</td>
-                        <td class="border border-black px-4 py-3 align-top text-center font-bold text-lg">
-                            ${calculatePF(r.bulletGrain, r.fps)}
-                        </td>
+                    <tr>
+                        <td>${r.id}</td>
+                        <td>${escapeHtml(r.caliber || '')}</td>
+                        <td style="max-width:12rem">${escapeHtml(r.notes || '')}</td>
+                        <td class="text-sm">${escapeHtml(r.caseMfg || '')}<br>${r.caseLength || ''} / ${r.caseOal || ''}</td>
+                        <td class="text-sm">${escapeHtml(r.primerMfg || '')}<br>${escapeHtml(r.primerType || '')}</td>
+                        <td class="text-sm">${escapeHtml(r.bulletMfg || '')}<br>${escapeHtml(r.bulletType || '')} / ${r.bulletGrain || ''}</td>
+                        <td class="text-sm">${escapeHtml(r.powderMfg || '')}<br>${escapeHtml(r.powderType || '')} / ${r.powderGrain || ''}</td>
+                        <td>${escapeHtml(r.firearm || '')}</td>
+                        <td class="text-center">${r.fps || ''}</td>
+                        <td class="text-center font-bold text-lg">${calculatePF(r.bulletGrain, r.fps)}</td>
                     </tr>
                 `).join('')}
             </tbody>
         </table>
     `;
-
     modal.classList.remove('hidden');
-
-    // Optional: auto-print after a tiny delay so the modal renders first
     setTimeout(() => window.print(), 300);
 }
 
@@ -671,18 +1058,18 @@ function openOptionsModal() {
         { name: 'Bullet Type', key: 'bulletType', opts: options.bulletType }
     ];
     editor.innerHTML = lists.map(list => `
-        <div class="border p-3 rounded">
+        <div style="border:1px solid var(--border);padding:0.75rem;border-radius:0.25rem">
             <h5 class="font-semibold mb-2">${list.name}</h5>
-            <div id="list-${list.key}" class="space-y-1 mb-2">
+            <div class="space-y-1 mb-2">
                 ${list.opts.map(opt => `
-                    <div class="flex justify-between items-center bg-gray-700 p-1 rounded">
+                    <div class="flex-row-between" style="background:var(--bg-input);padding:0.25rem 0.5rem;border-radius:0.25rem">
                         <span>${escapeHtml(opt)}</span>
-                        <button onclick="removeOption('${list.key}', '${opt}')" class="text-red-400 text-xs">Remove</button>
+                        <button onclick="removeOption('${list.key}', '${opt}')" class="btn-link text-red-400 text-xs">Remove</button>
                     </div>
                 `).join('')}
             </div>
-            <input type="text" id="new-${list.key}" placeholder="Add new option..." class="w-full px-2 py-1 bg-gray-700 rounded mb-1">
-            <button onclick="addOption('${list.key}')" class="px-3 py-1 bg-green-600 text-sm rounded">Add</button>
+            <input type="text" id="new-${list.key}" placeholder="Add new option..." class="input-dark mb-1">
+            <button onclick="addOption('${list.key}')" class="btn btn-sm btn-green">Add</button>
         </div>
     `).join('');
     document.getElementById('optionsModal').classList.remove('hidden');
@@ -690,7 +1077,6 @@ function openOptionsModal() {
 
 function closeOptionsModal() {
     document.getElementById('optionsModal').classList.add('hidden');
-    // Clear inputs
     document.querySelectorAll('#optionsModal input[type="text"]').forEach(el => el.value = '');
 }
 
@@ -700,19 +1086,23 @@ function addOption(key) {
     if (value && !options[key].includes(value)) {
         options[key].push(value);
         input.value = '';
-        openOptionsModal(); // Refresh modal
+        openOptionsModal();
     }
 }
 
 function removeOption(key, value) {
     options[key] = options[key].filter(opt => opt !== value);
-    openOptionsModal(); // Refresh modal
+    openOptionsModal();
 }
+
 function setActiveLoad(id) {
+    if (activeRecipeId && activeRecipeId !== id) {
+        showMessage("Switched active load — next rounds start a new batch", "info");
+    }
     activeRecipeId = id;
     localStorage.setItem('active_recipe_id', id);
     renderRecipes(currentFilter);
-    showMessage("Active load set!", "info");
+    updateActiveLoadDisplay();
 }
 
 function clearActiveLoad() {
@@ -733,12 +1123,8 @@ function updateActiveLoadDisplay() {
         display.classList.add('hidden');
         return;
     }
-
     const recipe = recipes.find(r => r.id === activeRecipeId);
-    if (!recipe) {
-        clearActiveLoad();
-        return;
-    }
+    if (!recipe) { clearActiveLoad(); return; }
 
     display.classList.remove('hidden');
     nameEl.textContent = `${recipe.caliber} - ${recipe.notes || 'Untitled'}`;
@@ -749,31 +1135,22 @@ function updateActiveLoadDisplay() {
 
 function logCompletedRound(currentTotal) {
     if (!activeRecipeId || lastCount === null || currentTotal <= lastCount) return;
-
     const roundsAdded = currentTotal - lastCount;
     const recipe = recipes.find(r => r.id === activeRecipeId);
     if (!recipe) return;
 
     const now = Date.now();
     const recipeName = `${recipe.caliber} - ${recipe.notes || 'Untitled'}`;
-
-    // Find the MOST RECENT batch for this recipe (not the oldest!)
-    const lastBatch = sessionLog.find(entry => 
-        entry.recipeId === activeRecipeId && 
-        entry.isBatch === true
-    );
+    const lastBatch = sessionLog.find(entry => entry.recipeId === activeRecipeId && entry.isBatch === true);
 
     let currentBatch;
-
     if (lastBatch && (now - new Date(lastBatch.lastUpdate).getTime()) < 60 * 60 * 1000) {
-        // Within 60 minutes of the most recent batch → add to it
         currentBatch = lastBatch;
         currentBatch.rounds += roundsAdded;
         currentBatch.totalCount = currentTotal;
         currentBatch.lastUpdate = new Date().toISOString();
         currentBatch.prettyTime = new Date().toLocaleString();
     } else {
-        // More than 60 min → new batch
         currentBatch = {
             date: new Date().toISOString(),
             prettyTime: new Date().toLocaleString(),
@@ -784,28 +1161,22 @@ function logCompletedRound(currentTotal) {
             isBatch: true,
             lastUpdate: new Date().toISOString()
         };
-        sessionLog.unshift(currentBatch); // newest first
+        sessionLog.unshift(currentBatch);
     }
 
-    // Update lifetime total
     recipe.lifetimeTotal = (recipe.lifetimeTotal || 0) + roundsAdded;
-
     localStorage.setItem(SESSION_LOG_KEY, JSON.stringify(sessionLog));
     saveRecipes();
     lastCount = currentTotal;
-
-    renderSessionLog();           // This will now show the batch!
-    renderRecipes(currentFilter); // Updates lifetime in table
+    renderSessionLog();
+    renderRecipes(currentFilter);
 }
 
-// 2. Beautiful session log with lifetime total
 function renderSessionLog() {
     const container = document.getElementById('sessionLog');
     const today = new Date().toDateString();
     const activeRecipe = activeRecipeId ? recipes.find(r => r.id === activeRecipeId) : null;
-
-    const todaysBatches = sessionLog
-        .filter(e => e.isBatch && new Date(e.date).toDateString() === today);
+    const todaysBatches = sessionLog.filter(e => e.isBatch && new Date(e.date).toDateString() === today);
 
     if (todaysBatches.length === 0 && !activeRecipe) {
         container.innerHTML = '<p class="text-gray-500 text-center">No batches logged today</p>';
@@ -813,13 +1184,12 @@ function renderSessionLog() {
     }
 
     let html = '';
-
     if (activeRecipe) {
         const lifetime = activeRecipe.lifetimeTotal || 0;
         html += `
-            <div class="mb-4 p-4 bg-indigo-900/30 rounded-lg border border-indigo-700">
+            <div class="active-load-banner">
                 <div class="text-sm text-indigo-300">Currently Active Load</div>
-                <div class="text-2xl font-bold text-white">${activeRecipe.caliber} - ${activeRecipe.notes || 'Untitled'}</div>
+                <div class="text-2xl font-bold">${activeRecipe.caliber} - ${activeRecipe.notes || 'Untitled'}</div>
                 <div class="text-sm text-gray-400 mt-1">
                     Lifetime loaded: <span class="font-bold text-green-400">${lifetime.toLocaleString()}</span> rounds
                 </div>
@@ -832,7 +1202,7 @@ function renderSessionLog() {
         html += todaysBatches.map(batch => {
             const time = batch.prettyTime.split(',')[1].trim();
             return `
-                <div class="flex justify-between items-center py-3 px-4 bg-gray-800/60 rounded-lg mb-2">
+                <div class="session-batch">
                     <div>
                         <span class="text-xs text-gray-400">${time}</span>
                         <span class="ml-3 font-medium">${batch.recipeName}</span>
@@ -847,40 +1217,19 @@ function renderSessionLog() {
     } else if (activeRecipe) {
         html += '<p class="text-gray-500 text-center mt-4">Start loading to begin logging batches</p>';
     }
-
     container.innerHTML = html;
 }
 
-// === 3. Update setActiveLoad() to close old batch when switching loads ===
-function setActiveLoad(id) {
-    if (activeRecipeId && activeRecipeId !== id) {
-        // Switching loads → forces a new batch next time
-        showMessage("Switched active load — next rounds start a new batch", "info");
-    }
-    activeRecipeId = id;
-    localStorage.setItem('active_recipe_id', id);
-    renderRecipes(currentFilter);
-    updateActiveLoadDisplay();
-}
-
-// === 4. Optional: Add a "New Batch" button (force split) ===
-
 function forceNewBatch() {
     if (!activeRecipeId) return;
-    // Just advance the "last update" time far into the past
     const lastBatch = sessionLog.find(e => e.recipeId === activeRecipeId && e.isBatch);
     if (lastBatch) {
-        lastBatch.lastUpdate = new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(); // yesterday
+        lastBatch.lastUpdate = new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString();
     }
     showMessage("Next rounds will start a new batch", "info");
 }
 
 activeRecipeId = parseInt(localStorage.getItem('active_recipe_id')) || null;
-
-// Auto-render when tab is opened
-document.querySelector('[data-tab="recipes"]').addEventListener('click', () => {
-    renderRecipes(currentFilter);
-});
 
 // Initial render on page load
 renderRecipes();
